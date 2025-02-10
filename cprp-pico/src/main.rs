@@ -99,11 +99,12 @@ fn main() -> ! {
     let mut serial = SerialPort::new(&usb_bus);
 
     // Create a USB device with a fake VID and PID
+    // TODO: Replace with actual VID and PID
     let mut usb_dev = UsbDeviceBuilder::new(&usb_bus, UsbVidPid(0x16c0, 0x27dd))
         .strings(&[StringDescriptors::default()
-            .manufacturer("Fake company")
-            .product("Serial port")
-            .serial_number("TEST")])
+            .manufacturer("CPR Therapeutics")
+            .product("CPR Phantom")
+            .serial_number("super unique and interesting serial number")])
         .unwrap()
         .device_class(USB_CLASS_CDC) // from: https://www.usb.org/defined-class-codes
         .build();
@@ -133,9 +134,17 @@ fn main() -> ! {
     let mut led_pin = pins.gpio25.into_push_pull_output();
     led_pin.set_high().unwrap();
 
+    // Timer for reporting the current time since program start
+    let mut timer = hal::Timer::new_timer0(pac.TIMER0, &mut pac.RESETS, &clocks);
+
+
     loop {
         // must be called at least every 10 ms
         usb_dev.poll(&mut [&mut serial]);
+
+        // get current time in microseconds
+        // TODO
+        let time_micros = timer.get_counter().duration_since_epoch().to_micros();
 
         // Read the raw ADC counts from the temperature sensor channel.
         // let temp_sens_adc_counts: u16 = adc.read(&mut temperature_sensor).unwrap();
@@ -143,9 +152,11 @@ fn main() -> ! {
         let adc2_val: u16 = adc.read(&mut adc_pin_1).unwrap();
         let adc1_val = adc1_val as i16;
         let adc2_val = adc2_val as i16;
+        let diff = adc2_val.wrapping_sub(adc1_val);
+
         let mut text: String<64> = String::new();
         // writeln!(&mut text, "Temperature sensor: {} counts ", temp_sens_adc_counts).unwrap();
-        writeln!(&mut text, "{}\r", adc2_val.wrapping_sub(adc1_val)).unwrap();
+        writeln!(&mut text, "{},{}\r", time_micros, diff).unwrap();
         let _ = serial.write(text.as_bytes()); // bad
     }
 }
