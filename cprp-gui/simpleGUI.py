@@ -5,7 +5,7 @@ from PyQt5.QtWidgets import QApplication, QMainWindow, QLineEdit, QPushButton, Q
 from PyQt5.QtCore import QTimer
 
 class SerialPlotter(QMainWindow):
-    def __init__(self, port='COM7', baudrate=9600, parent=None):
+    def __init__(self, port='COM8', baudrate=9600, parent=None):
         super().__init__(parent)
         self.setWindowTitle('CPR Phantom Interface')
         # Central widget and layout

@@ -11,6 +11,33 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import QTimer
 
+def parse_binary_line(line: bytes) -> list[int]:
+    """
+    ```rust
+        let raw_bytes = [
+            time_micros as u8, (time_micros >> 8) as u8, (time_micros >> 16) as u8, (time_micros >> 24) as u8,
+            ',' as u8,
+            diff as u8, (diff >> 8) as u8,
+            '\n' as u8,
+        ];
+
+        let _ = serial.write_all(&raw_bytes); // bad
+
+    ```
+    """
+
+    parts = line.split(b',')
+    # remove trailing 
+    parts[-1] = parts[-1].rstrip(b'\n')
+    ints_mapped = [int.from_bytes(part, 'little') for part in parts]
+
+    # ints were read in as unsigned, convert all except first to signed. (16 bit numbers)
+    for i in range(1, len(ints_mapped)):
+        ints_mapped[i] = i - 0x10000 if i & 0x8000 else i
+
+    return ints_mapped
+
+
 class SerialPlotter(QMainWindow):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -64,6 +91,9 @@ class SerialPlotter(QMainWindow):
         self.port_combo = QComboBox()
         serial_layout.addWidget(self.port_combo)
         self.refresh_ports()
+        self.refresh_button = QPushButton("Refresh")
+        serial_layout.addWidget(self.refresh_button)
+        self.refresh_button.clicked.connect(self.refresh_ports)
         self.connect_button = QPushButton("Connect")
         serial_layout.addWidget(self.connect_button)
         self.connect_button.clicked.connect(self.connect_serial)
@@ -197,7 +227,7 @@ class SerialPlotter(QMainWindow):
         Assumes that the first CSV column is the timestamp (x-axis) and the remaining columns
         are channel values.
         """
-        new_line = None
+        new_data = []
 
         if self.use_random:
             # If in test mode and no channels have been initialized, assume a default of 3.
@@ -206,24 +236,26 @@ class SerialPlotter(QMainWindow):
                 self.initialize_channels(self.max_channels)
             self.x += 1
             sample_timestamp = self.x
-            # Use the provided random generation formula.
-            values = [math.sin((math.pi/180.0) * self.x / (i + 1)) for i in range(self.max_channels)]
-            new_line = ",".join([str(sample_timestamp)] + [f"{v:.4f}" for v in values])
+            values = [sample_timestamp] + [math.sin((math.pi/180.0) * self.x / (i + 1)) for i in range(self.max_channels)]
+            new_data.append(values)
         else:
             if self.serial_port is None:
                 return
-            if self.serial_port.in_waiting:
+            while self.serial_port.in_waiting > 10:
                 try:
-                    new_line = self.serial_port.readline().decode('utf-8').strip()
+                    new_line = self.serial_port.readline()
+                    values = parse_binary_line(new_line)
+                    new_data.append(values)
                 except Exception as e:
                     print(f"Error reading serial data: {e}")
                     return
 
-        if new_line:
-            parts = new_line.split(',')
+        for parts in new_data:
+            print(parts)
             try:
-                # First column is the timestamp.
-                timestamp = float(parts[0])
+                # First column is the timestamp. Value comes in microseconds, so divide by 1e6.
+                # print(parts[0])
+                timestamp = float(parts[0]) / (1000000.0)
                 # The rest are the channel values.
                 channel_values = [float(x) for x in parts[1:]]
             except ValueError:
@@ -246,7 +278,7 @@ class SerialPlotter(QMainWindow):
                 ys = []
                 for sample in self.data_buffer:
                     t = sample[0]
-                    # If the sample doesn’t have a value for channel i, use NaN.
+                    # If the sample doesn't have a value for channel i, use NaN.
                     if i < len(sample[1]):
                         raw_val = sample[1][i]
                     else:

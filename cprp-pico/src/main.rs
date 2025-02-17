@@ -1,16 +1,17 @@
 #![no_std]
 #![no_main]
 
-use embedded_hal::digital::OutputPin;
+use embedded_hal::{delay::DelayNs, digital::OutputPin};
 // Ensure we halt the program on panic (if we don't mention this crate it won't
 // be linked)
 // use panic_halt as _;
 
+use embedded_io::Write;
 // Alias for our HAL crate
 use rp235x_hal as hal;
 
 // Some things we need
-use core::fmt::Write;
+// use core::fmt::Write;
 use heapless::String;
 use embedded_hal_0_2::{adc::OneShot};
 
@@ -86,6 +87,9 @@ fn main() -> ! {
     )
     .unwrap();
 
+    // Timer for reporting the current time since program start
+    let mut timer = hal::Timer::new_timer0(pac.TIMER0, &mut pac.RESETS, &clocks);
+
     // Set up the USB driver
     let usb_bus = UsbBusAllocator::new(hal::usb::UsbBus::new(
         pac.USB,
@@ -134,16 +138,15 @@ fn main() -> ! {
     let mut led_pin = pins.gpio25.into_push_pull_output();
     led_pin.set_high().unwrap();
 
-    // Timer for reporting the current time since program start
-    let mut timer = hal::Timer::new_timer0(pac.TIMER0, &mut pac.RESETS, &clocks);
-
 
     loop {
+        // delay
+        timer.delay_ms(10);
+
         // must be called at least every 10 ms
         usb_dev.poll(&mut [&mut serial]);
 
         // get current time in microseconds
-        // TODO
         let time_micros = timer.get_counter().duration_since_epoch().to_micros();
 
         // Read the raw ADC counts from the temperature sensor channel.
@@ -154,9 +157,21 @@ fn main() -> ! {
         let adc2_val = adc2_val as i16;
         let diff = adc2_val.wrapping_sub(adc1_val);
 
-        let mut text: String<64> = String::new();
+        // let mut text: String<64> = String::new();
         // writeln!(&mut text, "Temperature sensor: {} counts ", temp_sens_adc_counts).unwrap();
-        writeln!(&mut text, "{},{}\r", time_micros, diff).unwrap();
-        let _ = serial.write(text.as_bytes()); // bad
+        // writeln!(&mut text, "{},{}\r", time_micros, diff).unwrap();
+
+        let raw_bytes = [
+            time_micros as u8, (time_micros >> 8) as u8, (time_micros >> 16) as u8, (time_micros >> 24) as u8,
+            ',' as u8,
+            diff as u8, (diff >> 8) as u8,
+            '\n' as u8,
+        ];
+
+        let res = serial.write_all(&raw_bytes); // bad
+
+
+        // send as raw byte data
+
     }
 }
