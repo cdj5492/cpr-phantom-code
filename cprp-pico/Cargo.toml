@@ -28,3 +28,5 @@ rp235x-hal = {version = "0.2.0", features = ["binary-info", "critical-section-im
 usb-device = "0.3.2"
 usbd-serial = "0.2.2"
 static_cell = "2.1.0"
+
+

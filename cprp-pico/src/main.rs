@@ -168,7 +168,7 @@ fn main() -> ! {
             '\n' as u8,
         ];
 
-        let res = serial.write_all(&raw_bytes); // bad
+        let _res = serial.write_all(&raw_bytes); // bad
 
 
         // send as raw byte data
