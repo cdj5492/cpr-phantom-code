@@ -37,6 +37,20 @@ def parse_binary_line(line: bytes) -> list[int]:
 
     return ints_mapped
 
+def parse_string_line(line: bytes) -> list[int]:
+    """
+    ```rust
+        let mut text: String<64> = String::new();
+        writeln!(&mut text, "{},{}\r", time_micros, diff).unwrap();
+        let _ = serial.write_all(text.as_bytes()); // bad
+    ```
+    """
+
+    parts = line.split(b',')
+    # remove trailing \r\n
+    parts[-1] = parts[-1].rstrip(b'\r\n')
+    return [int(part) for part in parts]
+
 
 class SerialPlotter(QMainWindow):
     def __init__(self, parent=None):
@@ -241,17 +255,18 @@ class SerialPlotter(QMainWindow):
         else:
             if self.serial_port is None:
                 return
-            while self.serial_port.in_waiting > 10:
+            # print(f"Num waiting: {self.serial_port.in_waiting}")
+            while self.serial_port.in_waiting > 0:
                 try:
                     new_line = self.serial_port.readline()
-                    values = parse_binary_line(new_line)
+                    # values = parse_binary_line(new_line)
+                    values = parse_string_line(new_line)
                     new_data.append(values)
                 except Exception as e:
                     print(f"Error reading serial data: {e}")
                     return
 
         for parts in new_data:
-            print(parts)
             try:
                 # First column is the timestamp. Value comes in microseconds, so divide by 1e6.
                 # print(parts[0])

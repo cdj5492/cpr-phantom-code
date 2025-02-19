@@ -6,12 +6,12 @@ use embedded_hal::{delay::DelayNs, digital::OutputPin};
 // be linked)
 // use panic_halt as _;
 
-use embedded_io::Write;
+// use embedded_io::Write;
 // Alias for our HAL crate
 use rp235x_hal as hal;
 
 // Some things we need
-// use core::fmt::Write;
+use core::fmt::Write;
 use heapless::String;
 use embedded_hal_0_2::{adc::OneShot};
 
@@ -140,8 +140,9 @@ fn main() -> ! {
 
 
     loop {
-        // delay
-        timer.delay_ms(10);
+        // limit to 1000Hz
+        timer.delay_us(1000);
+
 
         // must be called at least every 10 ms
         usb_dev.poll(&mut [&mut serial]);
@@ -150,28 +151,34 @@ fn main() -> ! {
         let time_micros = timer.get_counter().duration_since_epoch().to_micros();
 
         // Read the raw ADC counts from the temperature sensor channel.
-        // let temp_sens_adc_counts: u16 = adc.read(&mut temperature_sensor).unwrap();
         let adc1_val: u16 = adc.read(&mut adc_pin_0).unwrap();
         let adc2_val: u16 = adc.read(&mut adc_pin_1).unwrap();
         let adc1_val = adc1_val as i16;
         let adc2_val = adc2_val as i16;
         let diff = adc2_val.wrapping_sub(adc1_val);
 
-        // let mut text: String<64> = String::new();
-        // writeln!(&mut text, "Temperature sensor: {} counts ", temp_sens_adc_counts).unwrap();
-        // writeln!(&mut text, "{},{}\r", time_micros, diff).unwrap();
+        let mut text: String<64> = String::new();
+        writeln!(&mut text, "{},{},{},{}\n", time_micros, diff, adc1_val, adc2_val).unwrap();
 
-        let raw_bytes = [
-            time_micros as u8, (time_micros >> 8) as u8, (time_micros >> 16) as u8, (time_micros >> 24) as u8,
-            ',' as u8,
-            diff as u8, (diff >> 8) as u8,
-            '\n' as u8,
-        ];
+        // let raw_bytes = [
+        //     time_micros as u8, (time_micros >> 8) as u8, (time_micros >> 16) as u8, (time_micros >> 24) as u8,
+        //     ',' as u8,
+        //     diff as u8, (diff >> 8) as u8,
+        //     '\n' as u8,
+        // ];
 
-        let _res = serial.write_all(&raw_bytes); // bad
-
-
-        // send as raw byte data
-
+        let buf = text.as_bytes();
+        let mut offset = 0;
+        while offset < buf.len() {
+            match serial.write(&buf[offset..]) {
+                Ok(n) => offset += n, // advance by the number of bytes written
+                Err(UsbError::WouldBlock) => {
+                    usb_dev.poll(&mut [&mut serial]);
+                }
+                Err(e) => {
+                    // Handle other errors if necessary, or just break out/log.
+                }
+            }
+        }
     }
 }
