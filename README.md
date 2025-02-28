@@ -36,6 +36,8 @@ Attach to WSL
 
 In WSL, cd to the `cprp-pico` directory and run `cargo run --target thumbv8m-none-eabi`
 
+# CPRP-GUI
 
+## TODO: Documentation cannot be written currently as it is in a state of flux
 
 
