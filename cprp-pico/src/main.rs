@@ -1,193 +1,138 @@
 #![no_std]
 #![no_main]
 
-use embedded_hal::{delay::DelayNs, digital::OutputPin};
-// Ensure we halt the program on panic (if we don't mention this crate it won't
-// be linked)
-// use panic_halt as _;
+use defmt::info;
+use embassy_executor::Spawner;
+use embassy_futures::join::join;
+use embassy_rp::bind_interrupts;
+use embassy_rp::i2c::I2c;
+use embassy_rp::peripherals::{I2C0, I2C1, USB};
+use embassy_rp::usb::{Driver as UsbDriver};
+use embassy_time::Timer;
+use embassy_usb::class::cdc_acm::{CdcAcmClass, State, USB_CLASS_CDC};
+use embassy_usb::driver::{Driver, Endpoint, EndpointIn, EndpointOut};
+use embassy_usb::msos::{self, windows_version};
+use embassy_usb::{Builder, Config};
+use {defmt_rtt as _, panic_probe as _};
 
-// use embedded_io::Write;
-// Alias for our HAL crate
-use rp235x_hal as hal;
-
-// Some things we need
-use core::fmt::Write;
-use heapless::String;
-use embedded_hal_0_2::adc::OneShot;
-
-// USB Device support
-use usb_device::{class_prelude::*, prelude::*};
-
-// USB Communications Class Device support
-use usbd_serial::{SerialPort, USB_CLASS_CDC};
-
-#[allow(dead_code)]
 mod devices;
 
-/// Tell the Boot ROM about our application
-#[link_section = ".start_block"]
-#[used]
-pub static IMAGE_DEF: hal::block::ImageDef = hal::block::ImageDef::secure_exe();
+bind_interrupts!(struct Irqs {
+    USBCTRL_IRQ => embassy_rp::usb::InterruptHandler<USB>;
+    I2C0_IRQ => embassy_rp::i2c::InterruptHandler<I2C0>;
+    I2C1_IRQ => embassy_rp::i2c::InterruptHandler<I2C1>;
+});
 
-// External high-speed crystal on the Raspberry Pi Pico 2 board is 12 MHz.
-const XTAL_FREQ_HZ: u32 = 12_000_000u32;
+bind_interrupts!(struct I2CIrqs {
+});
 
-// optimal loop time
-const LOOP_TIME_US: u32 = 1_000; // 1ms
+// This is a randomly generated GUID to allow clients on Windows to find our device
+const DEVICE_INTERFACE_GUIDS: &[&str] = &["{AFB9A6FB-30BA-44BC-9232-806CFC875321}"];
 
-// panic handler
-#[panic_handler]
-fn panic(_info: &core::panic::PanicInfo) -> ! {
-    // Grab our singleton objects
-    let mut pac = hal::pac::Peripherals::take().unwrap();
+#[embassy_executor::main]
+async fn main(_spawner: Spawner) {
+    let p = embassy_rp::init(Default::default());
 
-    // Set up the watchdog driver - needed by the clock setup code
-    let mut watchdog = hal::Watchdog::new(pac.WATCHDOG);
+    // Create the driver, from the HAL.
+    let driver = UsbDriver::new(p.USB, Irqs);
 
-    // Configure the clocks
-    let _clocks = hal::clocks::init_clocks_and_plls(
-        XTAL_FREQ_HZ,
-        pac.XOSC,
-        pac.CLOCKS,
-        pac.PLL_SYS,
-        pac.PLL_USB,
-        &mut pac.RESETS,
-        &mut watchdog,
-    )
-    .unwrap();
+    // Create embassy-usb Config
+    let mut config = Config::new(0xf569, 0x0001);
+    config.manufacturer = Some("CPR Therapeutics");
+    config.product = Some("CPR Phantom");
+    config.serial_number = Some("12345678");
+    config.max_power = 100;
+    config.max_packet_size_0 = 64;
 
-    // The single-cycle I/O block controls our GPIO pins
-    let sio = hal::Sio::new(pac.SIO);
+    config.device_class = 0xEF;
+    config.device_sub_class = 0x02;
+    config.device_protocol = 0x01;
+    config.composite_with_iads = true;
 
-    // Set the pins to their default state
-    let pins = hal::gpio::Pins::new(
-        pac.IO_BANK0,
-        pac.PADS_BANK0,
-        sio.gpio_bank0,
-        &mut pac.RESETS,
+    // Create embassy-usb DeviceBuilder using the driver and config.
+    // It needs some buffers for building the descriptors.
+    let mut config_descriptor = [0; 256];
+    let mut bos_descriptor = [0; 256];
+    let mut control_buf = [0; 64];
+    let mut msos_descriptor = [0; 256];
+
+    let mut state = State::new();
+
+    let mut builder = Builder::new(
+        driver,
+        config,
+        &mut config_descriptor,
+        &mut bos_descriptor,
+        &mut msos_descriptor,
+        &mut control_buf,
     );
 
-    let mut led_pin = pins.gpio25.into_push_pull_output();
-    led_pin.set_low().unwrap();
-    loop {}
-}
-
-// Entry point to bare-metal applications.
-#[hal::entry]
-fn main() -> ! {
-    // Grab our singleton objects
-    let mut pac = hal::pac::Peripherals::take().unwrap();
-
-    // Set up the watchdog driver - needed by the clock setup code
-    let mut watchdog = hal::Watchdog::new(pac.WATCHDOG);
-
-    // Configure the clocks
-    let clocks = hal::clocks::init_clocks_and_plls(
-        XTAL_FREQ_HZ,
-        pac.XOSC,
-        pac.CLOCKS,
-        pac.PLL_SYS,
-        pac.PLL_USB,
-        &mut pac.RESETS,
-        &mut watchdog,
-    )
-    .unwrap();
-
-    // Timer for reporting the current time since program start
-    let mut timer = hal::Timer::new_timer0(pac.TIMER0, &mut pac.RESETS, &clocks);
-
-    // Set up the USB driver
-    let usb_bus = UsbBusAllocator::new(hal::usb::UsbBus::new(
-        pac.USB,
-        pac.USB_DPRAM,
-        clocks.usb_clock,
-        true,
-        &mut pac.RESETS,
+    // Add the Microsoft OS Descriptor (MSOS/MOD) descriptor.
+    // We tell Windows that this entire device is compatible with the "WINUSB" feature,
+    // which causes it to use the built-in WinUSB driver automatically, which in turn
+    // can be used by libusb/rusb software without needing a custom driver or INF file.
+    // In principle you might want to call msos_feature() just on a specific function,
+    // if your device also has other functions that still use standard class drivers.
+    builder.msos_descriptor(windows_version::WIN8_1, 0);
+    builder.msos_feature(msos::CompatibleIdFeatureDescriptor::new("WINUSB", ""));
+    builder.msos_feature(msos::RegistryPropertyFeatureDescriptor::new(
+        "DeviceInterfaceGUIDs",
+        msos::PropertyData::RegMultiSz(DEVICE_INTERFACE_GUIDS),
     ));
 
-    // Set up the USB Communications Class Device driver
-    let mut serial = SerialPort::new(&usb_bus);
+    let class = CdcAcmClass::new(&mut builder, &mut state, 64);
 
-    // Create a USB device with a fake VID and PID
-    // TODO: Replace with actual VID and PID
-    let mut usb_dev = UsbDeviceBuilder::new(&usb_bus, UsbVidPid(0x16c0, 0x27dd))
-        .strings(&[StringDescriptors::default()
-            .manufacturer("CPR Therapeutics")
-            .product("CPR Phantom")
-            .serial_number("Unique and interesting serial number")])
-        .unwrap()
-        .device_class(USB_CLASS_CDC) // from: https://www.usb.org/defined-class-codes
-        .build();
+    // Build the builder.
+    let mut usb = builder.build();
 
-    // The single-cycle I/O block controls our GPIO pins
-    let sio = hal::Sio::new(pac.SIO);
+    // TODO: Up frequency to 1 mhz
+    let config = embassy_rp::i2c::Config::default();
 
-    // Set the pins to their default state
-    let pins = hal::gpio::Pins::new(
-        pac.IO_BANK0,
-        pac.PADS_BANK0,
-        sio.gpio_bank0,
-        &mut pac.RESETS,
+    let i2c = I2c::new_async(
+        p.I2C0,
+        p.PIN_21,
+        p.PIN_20,
+        Irqs,
+        config
     );
 
-    // Enable ADC
-    let mut adc = hal::Adc::new(pac.ADC, &mut pac.RESETS);
-
-    // Enable the temperature sense channel
-    // let mut temperature_sensor = adc.take_temp_sensor().unwrap();
-
-    // Configure GPIO26 as an ADC input
-    let mut adc_pin_0 = hal::adc::AdcPin::new(pins.gpio26).unwrap();
-    let mut adc_pin_1 = hal::adc::AdcPin::new(pins.gpio27).unwrap();
-
-    // led pin to indicate the program is running
-    let mut led_pin = pins.gpio25.into_push_pull_output();
-    led_pin.set_high().unwrap();
+    let mut ads = devices::ads1015::QwiicAds1015::new(i2c, None);
 
 
 
-    loop {
-        let loop_start = timer.get_counter().duration_since_epoch().to_micros() as u32;
+    // Run the USB device.
+    let usb_fut = usb.run();
 
-        // must be called at least every 10 ms
-        usb_dev.poll(&mut [&mut serial]);
+    let echo_fut = async {
+        // class.wait_connection().await;
+        let (mut sender, mut reader) = class.split();
+        sender.wait_connection().await;
+        reader.wait_connection().await;
+        info!("Connected");
+        let mut buf = [0; 64];
 
-        // get current time in microseconds
-        let time_micros = timer.get_counter().duration_since_epoch().to_micros();
-
-        // Read the raw ADC counts from the temperature sensor channel.
-        let adc1_val: u16 = adc.read(&mut adc_pin_0).unwrap();
-        let adc2_val: u16 = adc.read(&mut adc_pin_1).unwrap();
-        let adc1_val = adc1_val as i16;
-        let adc2_val = adc2_val as i16;
-        let diff = adc2_val.wrapping_sub(adc1_val);
-
-        let mut text: String<64> = String::new();
-        writeln!(&mut text, "{},{},{},{}\n", time_micros, diff, adc1_val, adc2_val).unwrap();
-
-        // let raw_bytes = [
-        //     time_micros as u8, (time_micros >> 8) as u8, (time_micros >> 16) as u8, (time_micros >> 24) as u8,
-        //     ',' as u8,
-        //     diff as u8, (diff >> 8) as u8,
-        //     '\n' as u8,
-        // ];
-
-        let buf = text.as_bytes();
-        let mut offset = 0;
-        while offset < buf.len() {
-            match serial.write(&buf[offset..]) {
-                Ok(n) => offset += n, // advance by the number of bytes written
-                Err(UsbError::WouldBlock) => {
-                    usb_dev.poll(&mut [&mut serial]);
-                }
-                Err(_e) => {
-                    // Handle other errors if necessary, or just break out/log.
-                }
-            }
+        let status_buf = "Beginning ads\r\n".as_bytes();
+        sender.write_packet(status_buf).await.unwrap();
+        while let Err(e) = ads.begin().await {
+            sender.write_packet(status_buf).await.unwrap();
+            embassy_time::Timer::after_millis(500).await;
         }
 
-        let loop_end = timer.get_counter().duration_since_epoch().to_micros() as u32;
-        // self correcting frequency
-        timer.delay_us(LOOP_TIME_US - (loop_end - loop_start));
+        loop {
+            let n = reader.read_packet(&mut buf).await.unwrap();
+            let data = &buf[..n];
+            info!("echo data: {:x}, len: {}", data, n);
+            sender.write_packet(data).await.unwrap();
+            // Clear bufffer
+            buf = [0; 64];
+        }
+    };
+
+
+    // Run everything concurrently.
+    join(usb_fut, echo_fut).await;
+
+    loop {
+        embassy_time::Timer::after_millis(500).await;
     }
 }

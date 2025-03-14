@@ -16,6 +16,7 @@ embedded-hal = "1.0.0"
 embedded-hal-async = "1.0.0"
 embedded-io = "0.6.1"
 embedded_hal_0_2 = {package = "embedded-hal", version = "0.2.5", features = ["unproven"]}
+embedded-io-async = { version = "0.6.1", features = ["defmt-03"] }
 fugit = "0.3.6"
 futures = {version = "0.3.30", default-features = false, features = ["async-await"]}
 hd44780-driver = "0.4.0"
@@ -28,10 +29,12 @@ rp235x-hal = {version = "0.2.0", features = ["binary-info", "critical-section-im
 usb-device = "0.3.2"
 usbd-serial = "0.2.2"
 static_cell = "2.1.0"
+panic-probe = { version = "0.3", features = ["print-defmt"] }
 
 embassy-embedded-hal = { version = "0.3.0", git = "https://github.com/embassy-rs/embassy.git", features = ["defmt"] }
 embassy-sync = { version = "0.6.1", git = "https://github.com/embassy-rs/embassy.git", features = ["defmt"] }
-embassy-executor = { version = "0.7.0", git = "https://github.com/embassy-rs/embassy.git", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "defmt", "task-arena-size-65536"] }
+embassy-executor = { version = "0.7.0", git = "https://github.com/embassy-rs/embassy.git", features = ["task-arena-size-98304", "arch-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
 embassy-time = { version = "0.4.0", git = "https://github.com/embassy-rs/embassy.git", features = ["defmt", "defmt-timestamp-uptime"] }
-embassy-rp = { version = "0.4.0", git = "https://github.com/embassy-rs/embassy.git", features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl", "rp235xa"] }
+embassy-rp = { version = "0.4.0", git = "https://github.com/embassy-rs/embassy.git", features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl", "rp235xa", "binary-info"] }
 embassy-futures = { version = "0.1.1", git = "https://github.com/embassy-rs/embassy.git" }
+embassy-usb = { version = "0.4.0", git = "https://github.com/embassy-rs/embassy.git", features = ["defmt"] }
