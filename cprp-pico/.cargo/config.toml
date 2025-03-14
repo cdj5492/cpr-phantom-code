@@ -48,7 +48,9 @@ rustflags = [
 # Use picotool for loading.
 #
 # Load an elf, skipping unchanged flash sectors, verify it, and execute it
-runner = "sudo picotool load -u -v -x -t elf"
+# runner = "sudo picotool load -u -v -x -t elf"
+# windows doesn't need sudo
+runner = "picotool load -u -v -x -t elf"
 
 # This is the soft-float ABI for Arm mode.
 #

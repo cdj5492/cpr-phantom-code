@@ -13,13 +13,16 @@ use rp235x_hal as hal;
 // Some things we need
 use core::fmt::Write;
 use heapless::String;
-use embedded_hal_0_2::{adc::OneShot};
+use embedded_hal_0_2::adc::OneShot;
 
 // USB Device support
 use usb_device::{class_prelude::*, prelude::*};
 
 // USB Communications Class Device support
 use usbd_serial::{SerialPort, USB_CLASS_CDC};
+
+#[allow(dead_code)]
+mod devices;
 
 /// Tell the Boot ROM about our application
 #[link_section = ".start_block"]
@@ -28,6 +31,9 @@ pub static IMAGE_DEF: hal::block::ImageDef = hal::block::ImageDef::secure_exe();
 
 // External high-speed crystal on the Raspberry Pi Pico 2 board is 12 MHz.
 const XTAL_FREQ_HZ: u32 = 12_000_000u32;
+
+// optimal loop time
+const LOOP_TIME_US: u32 = 1_000; // 1ms
 
 // panic handler
 #[panic_handler]
@@ -108,7 +114,7 @@ fn main() -> ! {
         .strings(&[StringDescriptors::default()
             .manufacturer("CPR Therapeutics")
             .product("CPR Phantom")
-            .serial_number("super unique and interesting serial number")])
+            .serial_number("Unique and interesting serial number")])
         .unwrap()
         .device_class(USB_CLASS_CDC) // from: https://www.usb.org/defined-class-codes
         .build();
@@ -139,10 +145,9 @@ fn main() -> ! {
     led_pin.set_high().unwrap();
 
 
-    loop {
-        // limit to 1000Hz
-        timer.delay_us(1000);
 
+    loop {
+        let loop_start = timer.get_counter().duration_since_epoch().to_micros() as u32;
 
         // must be called at least every 10 ms
         usb_dev.poll(&mut [&mut serial]);
@@ -175,10 +180,14 @@ fn main() -> ! {
                 Err(UsbError::WouldBlock) => {
                     usb_dev.poll(&mut [&mut serial]);
                 }
-                Err(e) => {
+                Err(_e) => {
                     // Handle other errors if necessary, or just break out/log.
                 }
             }
         }
+
+        let loop_end = timer.get_counter().duration_since_epoch().to_micros() as u32;
+        // self correcting frequency
+        timer.delay_us(LOOP_TIME_US - (loop_end - loop_start));
     }
 }
