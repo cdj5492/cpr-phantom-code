@@ -238,6 +238,7 @@ dependencies = [
 name = "cprp-pico"
 version = "0.1.0"
 dependencies = [
+ "bytemuck",
  "cortex-m",
  "cortex-m-rt",
  "cortex-m-rtic",

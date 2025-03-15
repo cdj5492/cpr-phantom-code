@@ -30,6 +30,7 @@ usb-device = "0.3.2"
 usbd-serial = "0.2.2"
 static_cell = "2.1.0"
 panic-probe = { version = "0.3", features = ["print-defmt"] }
+bytemuck = "1.22.0"
 
 embassy-embedded-hal = { version = "0.3.0", git = "https://github.com/embassy-rs/embassy.git", features = ["defmt"] }
 embassy-sync = { version = "0.6.1", git = "https://github.com/embassy-rs/embassy.git", features = ["defmt"] }
