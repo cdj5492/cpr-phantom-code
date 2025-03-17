@@ -16,7 +16,7 @@ pub enum Ads1015Error<I2cE> {
 }
 
 #[allow(dead_code)]
-mod constants {
+pub mod constants {
     // Device name and I2C addresses:
     pub const DEVICE_NAME: &str = " ADS1015";
     pub const AVAILABLE_I2C_ADDRESSES: [u8; 4] = [0x48, 0x49, 0x4A, 0x4B];
@@ -102,7 +102,6 @@ impl AdsAddressOptions {
 
 
 /// ADS1015 encapsulates the ADS1015 device configuration and state.
-/// Note that it does NOT own the I²C bus; the bus is passed in with each call.
 pub struct Ads1015 {
     addr: u8,
     sample_rate: u16,
@@ -164,6 +163,39 @@ impl Ads1015 {
         }
     }
 
+    /// Configures the device for single-ended readings on a given channel.
+    pub async fn set_single_ended<T, I2cE>(
+        &mut self,
+        i2c: &mut T,
+        channel: u8,
+    ) -> Result<(), Ads1015Error<I2cE>>
+    where
+        T: I2c<Error = I2cE>,
+    {
+        if channel > 3 {
+            return Err(Ads1015Error::InvalidChannel);
+        }
+        use constants::*;
+        let mut config: u16 = CONFIG_OS_SINGLE | CONFIG_CQUE_NONE | self.sample_rate | self.gain;
+        config |= if self.use_conversion_ready {
+            CONFIG_MODE_SINGLE
+        } else {
+            self.mode
+        };
+        config |= match channel {
+            0 => CONFIG_MUX_SINGLE0,
+            1 => CONFIG_MUX_SINGLE1,
+            2 => CONFIG_MUX_SINGLE2,
+            3 => CONFIG_MUX_SINGLE3,
+            _ => unreachable!(),
+        };
+
+        // Write the configuration to the device.
+        self.write_block(i2c, POINTER_CONFIG, &[(config >> 8) as u8, (config & 0xFF) as u8])
+            .await?;
+        Ok(())
+    }
+
     /// Reads a single-ended ADC channel (0-3).
     ///
     /// Returns the raw 12-bit ADC value (right-justified).
@@ -199,7 +231,7 @@ impl Ads1015 {
 
         if self.use_conversion_ready {
             while !self.available(i2c).await? {
-                Timer::after(embassy_time::Duration::from_millis(1)).await;
+                // Timer::after(embassy_time::Duration::from_millis(1)).await;
             }
         } else {
             self.conversion_delay().await;
@@ -272,7 +304,7 @@ impl Ads1015 {
             .await?;
         if self.use_conversion_ready {
             while !self.available(i2c).await? {
-                Timer::after(embassy_time::Duration::from_millis(1)).await;
+                // Timer::after(embassy_time::Duration::from_millis(1)).await;
             }
         } else {
             self.conversion_delay().await;

@@ -1,24 +1,22 @@
 #![no_std]
 #![no_main]
 
-use core::fmt::Write;
 use defmt::info;
-use devices::ads1015::{Ads1015, AdsAddressOptions};
+use devices::ads1015::{self, Ads1015, AdsAddressOptions};
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_rp::bind_interrupts;
 use embassy_rp::gpio::Output;
 use embassy_rp::i2c::I2c;
-use embassy_rp::peripherals::{ADC, I2C0, I2C1, USB};
+use embassy_rp::peripherals::{I2C0, I2C1, USB};
 use embassy_rp::usb::Driver as UsbDriver;
-use embassy_time::Timer;
-use embassy_usb::class::cdc_acm::{CdcAcmClass, State, USB_CLASS_CDC};
-use embassy_usb::driver::{Driver, Endpoint, EndpointIn, EndpointOut};
+// use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::msos::{self, windows_version};
 use embassy_usb::{Builder, Config};
-use heapless::String;
+// use embassy_sync::signal::Signal;
+use heapless::Vec;
 use {defmt_rtt as _, panic_probe as _};
-use bytemuck::cast_slice;
 
 #[allow(dead_code)]
 mod devices;
@@ -39,6 +37,10 @@ const DEVICE_INTERFACE_GUIDS: &[&str] = &["{AFB9A6FB-30BA-44BC-9232-806CFC875321
 // Number of ADC boards on each bus
 const ADC_COUNT_B1: usize = 1;
 const ADC_COUNT_B2: usize = 0;
+
+const MAGIC: u16 = 0xAA55;
+
+const PACKET_SIZE: usize = 2+1+4 + (ADC_COUNT_B1 * 8 + ADC_COUNT_B2 * 8) as usize;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -96,13 +98,15 @@ async fn main(_spawner: Spawner) {
     // Build the builder.
     let mut usb = builder.build();
 
-    // TODO: Up frequency to 1 mhz
-    let config = embassy_rp::i2c::Config::default();
+    let mut config = embassy_rp::i2c::Config::default();
+    config.frequency = 1_000_000; // 1 MHz
 
-    let mut i2c = I2c::new_async(p.I2C0, p.PIN_21, p.PIN_20, Irqs, config);
+    let mut i2c0 = I2c::new_async(p.I2C0, p.PIN_21, p.PIN_20, Irqs, config);
+    let mut i2c1 = I2c::new_async(p.I2C1, p.PIN_23, p.PIN_22, Irqs, config);
 
     // boards on I2C0
-    let mut expansion_boards_b1: [Ads1015; ADC_COUNT_B1] = [Ads1015::new(AdsAddressOptions::Addr48)];
+    let mut expansion_boards_b1: [Ads1015; ADC_COUNT_B1] =
+        [Ads1015::new(AdsAddressOptions::Addr48)];
     let mut expansion_boards_b2: [Ads1015; ADC_COUNT_B2] = [];
 
     // indicator led
@@ -111,57 +115,93 @@ async fn main(_spawner: Spawner) {
     // Run the USB device.
     let usb_fut = usb.run();
 
+    // packet to send
+    let mut packet = Vec::<u8, PACKET_SIZE>::new();
+
+    info!("Connecting ADCs...");
+
+    for ads in expansion_boards_b1.iter_mut() {
+        while let Err(_e) = ads.begin(&mut i2c0).await {
+            info!("Failed to connect to ADC on bus 0. Retrying...");
+            embassy_time::Timer::after_millis(250).await;
+            indicator.set_high();
+            embassy_time::Timer::after_millis(250).await;
+            indicator.set_low();
+        }
+        ads.set_sample_rate(ads1015::constants::CONFIG_RATE_3300HZ);
+        info!("Connected to ADC");
+    }
+    for ads in expansion_boards_b2.iter_mut() {
+        while let Err(_e) = ads.begin(&mut i2c1).await {
+            info!("Failed to connect to ADC on bus 1. Retrying...");
+            embassy_time::Timer::after_millis(250).await;
+            indicator.set_high();
+            embassy_time::Timer::after_millis(250).await;
+            indicator.set_low();
+        }
+        ads.set_sample_rate(ads1015::constants::CONFIG_RATE_3300HZ);
+        info!("Connected to ADC");
+    }
+
+    // let b1_signal: Signal<ThreadModeRawMutex, _> = Signal::new();
+
     let send_adc_fut = async {
         // class.wait_connection().await;
         let (mut sender, mut reader) = class.split();
+        info!("Waiting for USB connection...");
         sender.wait_connection().await;
         reader.wait_connection().await;
-        info!("Connected");
+        info!("Connected via USB.");
         // let mut buf = [0; 64];
 
-        sender.write_packet("Connecting ADCs...\r\n".as_bytes()).await.unwrap();
-
-        for ads in expansion_boards_b1.iter_mut() {
-            while let Err(e) = ads.begin(&mut i2c).await {
-                sender.write_packet("Failed to connect to ADC. Retrying...\r\n".as_bytes()).await.unwrap();
-                embassy_time::Timer::after_millis(250).await;
-                indicator.set_high();
-                embassy_time::Timer::after_millis(250).await;
-                indicator.set_low();
-            }
-            sender
-                .write_packet("Connected to ADC\r\n".as_bytes())
-                .await
-                .unwrap();
-        }
+        // let mut values = [0u16; ADC_COUNT_B1 * 4 + ADC_COUNT_B2 * 4];
 
         loop {
-            let mut values = [0u16; ADC_COUNT_B1*4];
-            for (i, ads) in expansion_boards_b1.iter_mut().enumerate() {
+            packet.clear();
+            let now = embassy_time::Instant::now();
+            let timestamp = now.as_millis() as u32;
+
+            // build packet header (could refactor to move outside loop)
+            // MAGIC (2 bytes), data length (1 bytes), timestamp (4 bytes)
+            packet.extend(MAGIC.to_le_bytes());
+            let _ = packet.push((ADC_COUNT_B1 * 8 + ADC_COUNT_B2 * 8 + 4) as u8);
+            packet.extend(timestamp.to_le_bytes());
+
+            // get single-ended adc values from each channel on each board on each bus
+            for ads in expansion_boards_b1.iter_mut() {
                 for j in 0..4 {
-                    let data = match ads.get_single_ended(&mut i2c, j as u8).await {
+                    let data = match ads.get_single_ended(&mut i2c0, j as u8).await {
                         Ok(data) => data,
                         Err(_) => continue,
                     };
-                    values[i*4 + j] = data;
+                    packet.extend(data.to_le_bytes());
                 }
             }
-            sender.write_packet(&cast_slice(&values)).await.unwrap();
-            // let Ok(data) = ads.get_single_ended(&mut i2c, 0).await else { continue; };
+            for ads in expansion_boards_b2.iter_mut() {
+                for j in 0..4 {
+                    let data = match ads.get_single_ended(&mut i2c1, j as u8).await {
+                        Ok(data) => data,
+                        Err(_) => continue,
+                    };
+                    packet.extend(data.to_le_bytes());
+                }
+            }
 
-            // info!("ADC data: {:x}", data);
-
-            // let mut str_buf = String::<32>::new();
-
-            // let _ = write!(str_buf, "ADC data: {:x}\r\n", data);
-            // sender.write_packet(str_buf.as_bytes()).await.unwrap();
+            // send packet to host
+            sender.write_packet(&packet).await.unwrap();
         }
     };
+
 
     // Run everything concurrently.
     join(usb_fut, send_adc_fut).await;
 
+
+    // shuold never get here. Blink led if it somehow happens anyway
     loop {
+        indicator.set_high();
+        embassy_time::Timer::after_millis(500).await;
+        indicator.set_low();
         embassy_time::Timer::after_millis(500).await;
     }
 }
