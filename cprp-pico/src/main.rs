@@ -1,7 +1,6 @@
 #![no_std]
 #![no_main]
 
-
 use defmt::info;
 use devices::ads1015::{self};
 use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
@@ -13,14 +12,11 @@ use embassy_rp::i2c::I2c;
 use embassy_rp::peripherals::{I2C0, I2C1, USB};
 use embassy_rp::usb::Driver as UsbDriver;
 
-use embassy_sync::channel::Channel;
 use embassy_sync::mutex::Mutex;
-// use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::msos::{self, windows_version};
 use embassy_usb::{Builder, Config};
-// use embassy_sync::signal::Signal;
 use heapless::Vec;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
@@ -28,6 +24,8 @@ use {defmt_rtt as _, panic_probe as _};
 
 #[allow(dead_code)]
 mod devices;
+mod messages;
+mod tasks;
 
 bind_interrupts!(struct Irqs {
     USBCTRL_IRQ => embassy_rp::usb::InterruptHandler<USB>;
@@ -51,6 +49,7 @@ const CHANNEL_COUNT: usize = BOARD_COUNT * 4;
 
 const MAGIC: u16 = 0xAA55;
 
+// Size of the packet in bytes
 const PACKET_SIZE: usize = 2 + 1 + 4 + CHANNEL_COUNT * 2 as usize;
 
 // Ideally how many packets should we be sending per second?
@@ -59,8 +58,8 @@ const TARGET_PACKET_RATE: u64 = 1000;
 type I2c0Bus = Mutex<CriticalSectionRawMutex, I2c<'static, I2C0, embassy_rp::i2c::Async>>;
 type I2c1Bus = Mutex<CriticalSectionRawMutex, I2c<'static, I2C1, embassy_rp::i2c::Async>>;
 
-static ADC_MESSAGE_CHANNEL: Channel<CriticalSectionRawMutex, ADCMessage, BOARD_COUNT> =
-    Channel::new();
+// static ADC_MESSAGE_CHANNEL: Channel<CriticalSectionRawMutex, ADCMessage, BOARD_COUNT> =
+//     Channel::new();
 
 // message from ADC task to main task
 enum ADCMessage {
@@ -83,8 +82,8 @@ async fn adc_task_b0(mut adc: ads1015::Ads1015, i2c_bus: &'static I2c0Bus, id: u
     adc.set_sample_rate(ads1015::constants::CONFIG_RATE_3300HZ);
 
     // send a message to the main task
-    ADC_MESSAGE_CHANNEL
-        .send(ADCMessage::DoneInitializing(id))
+    messages::ADC_MESSAGE_CHANNEL
+        .send(messages::ADCMessage::DoneInitializing(id))
         .await;
 
     loop {
@@ -92,8 +91,8 @@ async fn adc_task_b0(mut adc: ads1015::Ads1015, i2c_bus: &'static I2c0Bus, id: u
             let _ = adc.set_single_ended(&mut device_bus, channel as u8).await;
             adc.conversion_delay().await;
             if let Ok(val) = adc.get_last_conversion_results(&mut device_bus).await {
-                ADC_MESSAGE_CHANNEL
-                    .send(ADCMessage::Data(val, channel as u8, id))
+                messages::ADC_MESSAGE_CHANNEL
+                    .send(messages::ADCMessage::Data(val, channel as u8, id))
                     .await;
             }
         }
@@ -113,8 +112,8 @@ async fn adc_task_b1(mut adc: ads1015::Ads1015, i2c_bus: &'static I2c1Bus, id: u
     adc.set_sample_rate(ads1015::constants::CONFIG_RATE_3300HZ);
 
     // send a message to the main task
-    ADC_MESSAGE_CHANNEL
-        .send(ADCMessage::DoneInitializing(id))
+    messages::ADC_MESSAGE_CHANNEL
+        .send(messages::ADCMessage::DoneInitializing(id))
         .await;
 
     loop {
@@ -122,8 +121,8 @@ async fn adc_task_b1(mut adc: ads1015::Ads1015, i2c_bus: &'static I2c1Bus, id: u
             let _ = adc.set_single_ended(&mut device_bus, channel as u8).await;
             adc.conversion_delay().await;
             if let Ok(val) = adc.get_last_conversion_results(&mut device_bus).await {
-                ADC_MESSAGE_CHANNEL
-                    .send(ADCMessage::Data(val, channel as u8, id))
+                messages::ADC_MESSAGE_CHANNEL
+                    .send(messages::ADCMessage::Data(val, channel as u8, id))
                     .await;
             }
         }
@@ -255,8 +254,8 @@ async fn main(spawner: Spawner) {
         // wait for a DoneIntializing packet from each board
         let mut boards_initialized = 0;
         while boards_initialized < BOARD_COUNT {
-            match ADC_MESSAGE_CHANNEL.receive().await {
-                ADCMessage::DoneInitializing(id) => {
+            match messages::ADC_MESSAGE_CHANNEL.receive().await {
+                messages::ADCMessage::DoneInitializing(id) => {
                     boards_initialized += 1;
                     info!("Connected new ADC {}", id);
                 }
@@ -283,14 +282,13 @@ async fn main(spawner: Spawner) {
             // keep header
             packet.truncate(3);
 
-
             // timestamp (4 bytes)
             packet.extend(timestamp.to_le_bytes());
 
             // This only works if this task runs much faster than the ADCs can produce data!
-            while let Ok(message) = ADC_MESSAGE_CHANNEL.try_receive() {
+            while let Ok(message) = messages::ADC_MESSAGE_CHANNEL.try_receive() {
                 match message {
-                    ADCMessage::Data(val, channel, id) => {
+                    messages::ADCMessage::Data(val, channel, id) => {
                         sensor_data[id as usize * 4 + channel as usize] = val;
                     }
                     _ => (),
@@ -309,7 +307,6 @@ async fn main(spawner: Spawner) {
             let now = embassy_time::Instant::now();
             let elapsed = now.as_micros() - start;
             embassy_time::Timer::after_micros((1_000_000 / TARGET_PACKET_RATE).saturating_sub(elapsed)).await;
-
         }
     };
 
@@ -324,3 +321,4 @@ async fn main(spawner: Spawner) {
         embassy_time::Timer::after_millis(500).await;
     }
 }
+
