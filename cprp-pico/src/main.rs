@@ -6,6 +6,7 @@ use core::future::Future;
 
 use defmt::info;
 use devices::ads1015::{self, Ads1015, AdsAddressOptions};
+use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_rp::bind_interrupts;
@@ -13,22 +14,21 @@ use embassy_rp::gpio::Output;
 use embassy_rp::i2c::I2c;
 use embassy_rp::peripherals::{I2C0, I2C1, USB};
 use embassy_rp::usb::Driver as UsbDriver;
-use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 
 use embassy_sync::channel::Channel;
 use embassy_sync::mutex::Mutex;
 use embassy_sync::signal::Signal;
 // use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex, ThreadModeRawMutex};
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::msos::{self, windows_version};
 use embassy_usb::{Builder, Config};
-use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex, ThreadModeRawMutex};
 use heapless::pool::arc::Arc;
 // use embassy_sync::signal::Signal;
 use heapless::{String, Vec};
 use static_cell::StaticCell;
-// use {defmt_rtt as _, panic_probe as _};
-use {defmt_rtt as _, panic_reset as _};
+use {defmt_rtt as _, panic_probe as _};
+// use {defmt_rtt as _, panic_reset as _};
 
 #[allow(dead_code)]
 mod devices;
@@ -55,15 +55,16 @@ const CHANNEL_COUNT: usize = BOARD_COUNT * 4;
 
 const MAGIC: u16 = 0xAA55;
 
-const PACKET_SIZE: usize = 2 + 1 + 4 + CHANNEL_COUNT*2 as usize;
+const PACKET_SIZE: usize = 2 + 1 + 4 + CHANNEL_COUNT * 2 as usize;
 
 // Ideally how many packets should we be sending per second?
-const TARGET_PACKET_RATE : u32 = 1000;
+const TARGET_PACKET_RATE: u64 = 1000;
 
 type I2c0Bus = Mutex<CriticalSectionRawMutex, I2c<'static, I2C0, embassy_rp::i2c::Async>>;
 type I2c1Bus = Mutex<CriticalSectionRawMutex, I2c<'static, I2C1, embassy_rp::i2c::Async>>;
 
-static ADC_MESSAGE_CHANNEL: Channel<CriticalSectionRawMutex, ADCMessage, BOARD_COUNT> = Channel::new();
+static ADC_MESSAGE_CHANNEL: Channel<CriticalSectionRawMutex, ADCMessage, BOARD_COUNT> =
+    Channel::new();
 
 // message from ADC task to main task
 enum ADCMessage {
@@ -77,7 +78,7 @@ enum ADCMessage {
 #[embassy_executor::task(pool_size=ADC_COUNT_B0)]
 async fn adc_task_b0(mut adc: ads1015::Ads1015, i2c_bus: &'static I2c0Bus, id: u8) -> ! {
     let mut device_bus = I2cDevice::new(i2c_bus);
-    
+
     // initialize sensor
     while let Err(_e) = adc.begin(&mut device_bus).await {
         info!("Failed to connect to ADC on bus 0 (id {}). Retrying...", id);
@@ -86,14 +87,18 @@ async fn adc_task_b0(mut adc: ads1015::Ads1015, i2c_bus: &'static I2c0Bus, id: u
     adc.set_sample_rate(ads1015::constants::CONFIG_RATE_3300HZ);
 
     // send a message to the main task
-    ADC_MESSAGE_CHANNEL.send(ADCMessage::DoneInitializing(id)).await;
+    ADC_MESSAGE_CHANNEL
+        .send(ADCMessage::DoneInitializing(id))
+        .await;
 
     loop {
         for channel in 0..4 {
             let _ = adc.set_single_ended(&mut device_bus, channel as u8).await;
             adc.conversion_delay().await;
             if let Ok(val) = adc.get_last_conversion_results(&mut device_bus).await {
-                ADC_MESSAGE_CHANNEL.send(ADCMessage::Data(val, channel as u8, id)).await;
+                ADC_MESSAGE_CHANNEL
+                    .send(ADCMessage::Data(val, channel as u8, id))
+                    .await;
             }
         }
     }
@@ -103,7 +108,7 @@ async fn adc_task_b0(mut adc: ads1015::Ads1015, i2c_bus: &'static I2c0Bus, id: u
 #[embassy_executor::task(pool_size=ADC_COUNT_B1)]
 async fn adc_task_b1(mut adc: ads1015::Ads1015, i2c_bus: &'static I2c1Bus, id: u8) -> ! {
     let mut device_bus = I2cDevice::new(i2c_bus);
-    
+
     // initialize sensor
     while let Err(_e) = adc.begin(&mut device_bus).await {
         info!("Failed to connect to ADC on bus 1 (id {}). Retrying...", id);
@@ -112,14 +117,18 @@ async fn adc_task_b1(mut adc: ads1015::Ads1015, i2c_bus: &'static I2c1Bus, id: u
     adc.set_sample_rate(ads1015::constants::CONFIG_RATE_3300HZ);
 
     // send a message to the main task
-    ADC_MESSAGE_CHANNEL.send(ADCMessage::DoneInitializing(id)).await;
+    ADC_MESSAGE_CHANNEL
+        .send(ADCMessage::DoneInitializing(id))
+        .await;
 
     loop {
         for channel in 0..4 {
             let _ = adc.set_single_ended(&mut device_bus, channel as u8).await;
             adc.conversion_delay().await;
             if let Ok(val) = adc.get_last_conversion_results(&mut device_bus).await {
-                ADC_MESSAGE_CHANNEL.send(ADCMessage::Data(val, channel as u8, id)).await;
+                ADC_MESSAGE_CHANNEL
+                    .send(ADCMessage::Data(val, channel as u8, id))
+                    .await;
             }
         }
     }
@@ -190,6 +199,11 @@ async fn main(spawner: Spawner) {
     // Build the builder.
     let mut usb = builder.build();
 
+    // PWM pin for power to ADC board MOSFET
+    let mut adc_ppwm = Output::new(p.PIN_2, false.into());
+    // general purpose pin for ADC board (not used yet)
+    let mut _adc_gp = Output::new(p.PIN_3, false.into());
+
     let mut config = embassy_rp::i2c::Config::default();
     config.frequency = 1_000_000; // 1 MHz
 
@@ -201,9 +215,21 @@ async fn main(spawner: Spawner) {
     let i2c1_bus = I2C1_BUS.init(Mutex::new(i2c1));
 
     let adc_task_spawn_results = [
-        spawner.spawn(adc_task_b1(ads1015::Ads1015::new(ads1015::AdsAddressOptions::Addr48), i2c1_bus, 0)),
-        spawner.spawn(adc_task_b0(ads1015::Ads1015::new(ads1015::AdsAddressOptions::Addr49), i2c0_bus, 1)),
-        spawner.spawn(adc_task_b0(ads1015::Ads1015::new(ads1015::AdsAddressOptions::Addr4A), i2c0_bus, 2)),
+        spawner.spawn(adc_task_b1(
+            ads1015::Ads1015::new(ads1015::AdsAddressOptions::Addr48),
+            i2c1_bus,
+            0,
+        )),
+        spawner.spawn(adc_task_b0(
+            ads1015::Ads1015::new(ads1015::AdsAddressOptions::Addr49),
+            i2c0_bus,
+            1,
+        )),
+        spawner.spawn(adc_task_b0(
+            ads1015::Ads1015::new(ads1015::AdsAddressOptions::Addr4A),
+            i2c0_bus,
+            2,
+        )),
     ];
     if !adc_task_spawn_results.iter().all(|x| x.is_ok()) {
         panic!("Failed to spawn some ADC tasks. Check ADC_COUNT_B0 and ADC_COUNT_B1");
@@ -237,7 +263,7 @@ async fn main(spawner: Spawner) {
                 ADCMessage::DoneInitializing(id) => {
                     boards_initialized += 1;
                     info!("Connected new ADC {}", id);
-                },
+                }
                 _ => (),
             }
         }
@@ -247,20 +273,23 @@ async fn main(spawner: Spawner) {
         info!("All ADCs connected.");
 
         // build packet header
-        // MAGIC (2 bytes), data length (1 bytes), 
+        // MAGIC (2 bytes), data length (1 bytes),
         packet.extend(MAGIC.to_le_bytes());
         let _ = packet.push((ADC_COUNT_B0 * 8 + ADC_COUNT_B1 * 8 + 4) as u8);
 
         loop {
+            let now = embassy_time::Instant::now();
+            let start = now.as_micros();
+            let timestamp = now.as_millis() as u32;
+
+            adc_ppwm.toggle();
+
             // keep header
             packet.truncate(3);
 
-            let now = embassy_time::Instant::now();
-            let timestamp = now.as_millis() as u32;
 
             // timestamp (4 bytes)
             packet.extend(timestamp.to_le_bytes());
-
 
             // This only works if this task runs much faster than the ADCs can produce data!
             while let Ok(message) = ADC_MESSAGE_CHANNEL.try_receive() {
@@ -279,6 +308,12 @@ async fn main(spawner: Spawner) {
 
             // send packet to host
             sender.write_packet(&packet).await.unwrap();
+
+            // regulate loop speed
+            let now = embassy_time::Instant::now();
+            let elapsed = now.as_micros() - start;
+            embassy_time::Timer::after_micros((1_000_000 / TARGET_PACKET_RATE).saturating_sub(elapsed)).await;
+
         }
     };
 
