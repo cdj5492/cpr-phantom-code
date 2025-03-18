@@ -27,6 +27,26 @@ mod devices;
 mod messages;
 mod tasks;
 
+use tasks::*;
+
+/// This is a randomly generated GUID to allow clients on Windows to find our device
+const DEVICE_INTERFACE_GUIDS: &[&str] = &["{AFB9A6FB-30BA-44BC-9232-806CFC875321}"];
+
+/// Number of ADC boards on each bus
+const ADC_COUNT_B0: usize = 2;
+const ADC_COUNT_B1: usize = 1;
+
+const BOARD_COUNT: usize = ADC_COUNT_B0 + ADC_COUNT_B1;
+const CHANNEL_COUNT: usize = BOARD_COUNT * 4;
+
+const MAGIC: u16 = 0xAA55;
+
+/// Size of the packet in bytes
+const PACKET_SIZE: usize = 2 + 1 + 4 + CHANNEL_COUNT * 2 as usize;
+
+/// Ideally how many packets should we be sending per second?
+const TARGET_PACKET_RATE: u64 = 1000;
+
 bind_interrupts!(struct Irqs {
     USBCTRL_IRQ => embassy_rp::usb::InterruptHandler<USB>;
     I2C0_IRQ => embassy_rp::i2c::InterruptHandler<I2C0>;
@@ -36,98 +56,6 @@ bind_interrupts!(struct Irqs {
 bind_interrupts!(
     struct I2CIrqs {}
 );
-
-// This is a randomly generated GUID to allow clients on Windows to find our device
-const DEVICE_INTERFACE_GUIDS: &[&str] = &["{AFB9A6FB-30BA-44BC-9232-806CFC875321}"];
-
-// Number of ADC boards on each bus
-const ADC_COUNT_B0: usize = 2;
-const ADC_COUNT_B1: usize = 1;
-
-const BOARD_COUNT: usize = ADC_COUNT_B0 + ADC_COUNT_B1;
-const CHANNEL_COUNT: usize = BOARD_COUNT * 4;
-
-const MAGIC: u16 = 0xAA55;
-
-// Size of the packet in bytes
-const PACKET_SIZE: usize = 2 + 1 + 4 + CHANNEL_COUNT * 2 as usize;
-
-// Ideally how many packets should we be sending per second?
-const TARGET_PACKET_RATE: u64 = 1000;
-
-type I2c0Bus = Mutex<CriticalSectionRawMutex, I2c<'static, I2C0, embassy_rp::i2c::Async>>;
-type I2c1Bus = Mutex<CriticalSectionRawMutex, I2c<'static, I2C1, embassy_rp::i2c::Async>>;
-
-// static ADC_MESSAGE_CHANNEL: Channel<CriticalSectionRawMutex, ADCMessage, BOARD_COUNT> =
-//     Channel::new();
-
-// message from ADC task to main task
-enum ADCMessage {
-    // (board id)
-    DoneInitializing(u8),
-    // (reading, channel, board id)
-    Data(u16, u8, u8),
-}
-
-/// runs asynchronously for each board on I2C bus 0
-#[embassy_executor::task(pool_size=ADC_COUNT_B0)]
-async fn adc_task_b0(mut adc: ads1015::Ads1015, i2c_bus: &'static I2c0Bus, id: u8) -> ! {
-    let mut device_bus = I2cDevice::new(i2c_bus);
-
-    // initialize sensor
-    while let Err(_e) = adc.begin(&mut device_bus).await {
-        info!("Failed to connect to ADC on bus 0 (id {}). Retrying...", id);
-        embassy_time::Timer::after_millis(500).await;
-    }
-    adc.set_sample_rate(ads1015::constants::CONFIG_RATE_3300HZ);
-
-    // send a message to the main task
-    messages::ADC_MESSAGE_CHANNEL
-        .send(messages::ADCMessage::DoneInitializing(id))
-        .await;
-
-    loop {
-        for channel in 0..4 {
-            let _ = adc.set_single_ended(&mut device_bus, channel as u8).await;
-            adc.conversion_delay().await;
-            if let Ok(val) = adc.get_last_conversion_results(&mut device_bus).await {
-                messages::ADC_MESSAGE_CHANNEL
-                    .send(messages::ADCMessage::Data(val, channel as u8, id))
-                    .await;
-            }
-        }
-    }
-}
-
-/// runs asynchronously for each board on I2C bus 1
-#[embassy_executor::task(pool_size=ADC_COUNT_B1)]
-async fn adc_task_b1(mut adc: ads1015::Ads1015, i2c_bus: &'static I2c1Bus, id: u8) -> ! {
-    let mut device_bus = I2cDevice::new(i2c_bus);
-
-    // initialize sensor
-    while let Err(_e) = adc.begin(&mut device_bus).await {
-        info!("Failed to connect to ADC on bus 1 (id {}). Retrying...", id);
-        embassy_time::Timer::after_millis(500).await;
-    }
-    adc.set_sample_rate(ads1015::constants::CONFIG_RATE_3300HZ);
-
-    // send a message to the main task
-    messages::ADC_MESSAGE_CHANNEL
-        .send(messages::ADCMessage::DoneInitializing(id))
-        .await;
-
-    loop {
-        for channel in 0..4 {
-            let _ = adc.set_single_ended(&mut device_bus, channel as u8).await;
-            adc.conversion_delay().await;
-            if let Ok(val) = adc.get_last_conversion_results(&mut device_bus).await {
-                messages::ADC_MESSAGE_CHANNEL
-                    .send(messages::ADCMessage::Data(val, channel as u8, id))
-                    .await;
-            }
-        }
-    }
-}
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
