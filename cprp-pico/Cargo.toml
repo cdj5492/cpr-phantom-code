@@ -22,7 +22,8 @@ futures = {version = "0.3.30", default-features = false, features = ["async-awai
 hd44780-driver = "0.4.0"
 heapless = "0.8.0"
 nb = "1.0"
-panic-halt = "0.2.0"
+# panic-halt = "0.2.0"
+panic-reset = "0.1.1"
 pio = "0.2.0"
 pio-proc = "0.2.0"
 rp235x-hal = {version = "0.2.0", features = ["binary-info", "critical-section-impl", "rt"]}

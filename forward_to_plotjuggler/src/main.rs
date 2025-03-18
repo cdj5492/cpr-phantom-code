@@ -28,6 +28,9 @@ fn read_packet(port: &mut dyn SerialPort) -> Option<Vec<u8>> {
     let magic = u16::from_le_bytes([header[0], header[1]]);
     let payload_length = header[2] as usize;
 
+    // debug print magic and payload_length in hex
+    // println!("magic: {:04x}, payload_length: {}", magic, payload_length);
+
     if magic != MAGIC {
         println!("Invalid magic value, discarding packet");
         return None;
@@ -49,7 +52,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let udp_port = 9870;
 
     // number of boards sending all their ADC channels
-    let num_boards = 1;
+    let num_boards = 3;
     let num_adc_values = num_boards * 4;
 
     // Expected packet length: 4 bytes for the timestamp + 2 bytes per ADC value.
