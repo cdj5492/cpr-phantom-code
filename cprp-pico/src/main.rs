@@ -3,7 +3,6 @@
 
 use defmt::info;
 use devices::ads1015::{self};
-use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_rp::bind_interrupts;
@@ -13,7 +12,6 @@ use embassy_rp::peripherals::{I2C0, I2C1, USB};
 use embassy_rp::usb::Driver as UsbDriver;
 
 use embassy_sync::mutex::Mutex;
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::msos::{self, windows_version};
 use embassy_usb::{Builder, Config};
