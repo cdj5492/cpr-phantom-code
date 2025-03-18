@@ -2,10 +2,12 @@ use std::error::Error;
 use std::net::UdpSocket;
 use std::time::{Duration, Instant};
 
-use serialport::SerialPort;
+use serialport::{SerialPort, SerialPortType};
 use serde::Serialize;
 
 const MAGIC: u16 = 0xAA55;
+// Change this to the vendor ID you want to target.
+const TARGET_VENDOR_ID: u16 = 0xf569;
 
 #[derive(Serialize)]
 struct Data {
@@ -45,13 +47,25 @@ fn read_packet(port: &mut dyn SerialPort) -> Option<Vec<u8>> {
 
 fn main() -> Result<(), Box<dyn Error>> {
     // --- Configuration ---
-    let serial_port_name = "COM5";
     let baud_rate = 115200;
     let udp_ip = "127.0.0.1";
     let udp_port = 9870;
 
+    // --- Find the serial port by vendor ID ---
+    let available_ports = serialport::available_ports()?;
+    let port_info = available_ports.into_iter().find(|p| match p.port_type {
+        SerialPortType::UsbPort(ref usb_info) => usb_info.vid == TARGET_VENDOR_ID,
+        _ => false,
+    }).ok_or_else(|| {
+        eprintln!("No serial port found with vendor ID: 0x{:04x}", TARGET_VENDOR_ID);
+        "Serial port not found"
+    })?;
+
+    let serial_port_name = port_info.port_name;
+    println!("Using serial port: {}", serial_port_name);
+
     // --- Setup serial connection ---
-    let mut port = serialport::new(serial_port_name, baud_rate)
+    let mut port = serialport::new(&serial_port_name, baud_rate)
         .timeout(Duration::from_secs(1))
         .open()
         .map_err(|e| {
