@@ -1,11 +1,9 @@
 #![no_std]
 #![no_main]
 
-use core::fmt::Write;
-use core::future::Future;
 
 use defmt::info;
-use devices::ads1015::{self, Ads1015, AdsAddressOptions};
+use devices::ads1015::{self};
 use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
@@ -17,15 +15,13 @@ use embassy_rp::usb::Driver as UsbDriver;
 
 use embassy_sync::channel::Channel;
 use embassy_sync::mutex::Mutex;
-use embassy_sync::signal::Signal;
 // use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
-use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex, ThreadModeRawMutex};
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::msos::{self, windows_version};
 use embassy_usb::{Builder, Config};
-use heapless::pool::arc::Arc;
 // use embassy_sync::signal::Signal;
-use heapless::{String, Vec};
+use heapless::Vec;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 // use {defmt_rtt as _, panic_reset as _};

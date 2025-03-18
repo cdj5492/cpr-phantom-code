@@ -1,5 +1,4 @@
 use std::error::Error;
-use std::io::Read;
 use std::net::UdpSocket;
 use std::time::{Duration, Instant};
 
@@ -28,7 +27,7 @@ fn read_packet(port: &mut dyn SerialPort) -> Option<Vec<u8>> {
     let magic = u16::from_le_bytes([header[0], header[1]]);
     let payload_length = header[2] as usize;
 
-    // debug print magic and payload_length in hex
+    // Uncomment for debugging:
     // println!("magic: {:04x}, payload_length: {}", magic, payload_length);
 
     if magic != MAGIC {
@@ -51,13 +50,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     let udp_ip = "127.0.0.1";
     let udp_port = 9870;
 
-    // number of boards sending all their ADC channels
-    let num_boards = 3;
-    let num_adc_values = num_boards * 4;
-
-    // Expected packet length: 4 bytes for the timestamp + 2 bytes per ADC value.
-    let expected_payload_length = 4 + 2 * num_adc_values;
-
     // --- Setup serial connection ---
     let mut port = serialport::new(serial_port_name, baud_rate)
         .timeout(Duration::from_secs(1))
@@ -78,41 +70,28 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     loop {
         if let Some(packet) = read_packet(&mut *port) {
-            if packet.len() != expected_payload_length {
-                println!(
-                    "Payload length mismatch: got {} bytes, expected {}",
-                    packet.len(),
-                    expected_payload_length
-                );
+            if packet.len() < 4 {
+                println!("Payload too short: {} bytes", packet.len());
                 continue;
             }
 
-            // Unpack payload: first 4 bytes are the timestamp.
-            if packet.len() < 4 {
-                continue;
-            }
+            // Unpack the 4-byte timestamp.
             let timestamp = u32::from_le_bytes([packet[0], packet[1], packet[2], packet[3]]);
             let timestamp_sec = (timestamp as f64) / 1e3;
 
-            // Next bytes are ADC values (each 2 bytes, little-endian)
+            // Calculate the number of ADC values based on the payload length.
+            let adc_payload_len = packet.len() - 4;
+            if adc_payload_len % 2 != 0 {
+                println!("ADC payload length is not even: {}", adc_payload_len);
+                continue;
+            }
+            let num_adc_values = adc_payload_len / 2;
             let mut adc_values = Vec::with_capacity(num_adc_values);
             let mut offset = 4;
             for _ in 0..num_adc_values {
-                if offset + 2 > packet.len() {
-                    println!("Not enough bytes for ADC value");
-                    break;
-                }
                 let adc = u16::from_le_bytes([packet[offset], packet[offset + 1]]);
                 adc_values.push(adc);
                 offset += 2;
-            }
-            if adc_values.len() != num_adc_values {
-                println!(
-                    "Unpacking error: expected {} ADC values, got {}",
-                    num_adc_values,
-                    adc_values.len()
-                );
-                continue;
             }
 
             // Create JSON structure for UDP transmission.
