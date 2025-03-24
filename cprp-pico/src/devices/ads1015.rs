@@ -529,7 +529,7 @@ impl Ads1015 {
     pub async fn conversion_delay(&mut self) {
         use constants::*;
         let delay_micros = if self.sample_rate >= CONFIG_RATE_3300HZ {
-            4000
+            1000
         } else if self.sample_rate >= CONFIG_RATE_2400HZ {
             500
         } else if self.sample_rate >= CONFIG_RATE_1600HZ {

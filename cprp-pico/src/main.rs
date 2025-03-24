@@ -9,12 +9,13 @@ use embassy_rp::bind_interrupts;
 use embassy_rp::gpio::Output;
 use embassy_rp::i2c::I2c;
 use embassy_rp::peripherals::{I2C0, I2C1, USB};
+use embassy_rp::pwm::{Pwm, SetDutyCycle};
 use embassy_rp::usb::Driver as UsbDriver;
 
 use embassy_sync::mutex::Mutex;
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::msos::{self, windows_version};
-use embassy_usb::{Builder, Config};
+use embassy_usb::{Builder};
 use heapless::Vec;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
@@ -31,8 +32,8 @@ use tasks::*;
 const DEVICE_INTERFACE_GUIDS: &[&str] = &["{AFB9A6FB-30BA-44BC-9232-806CFC875321}"];
 
 /// Number of ADC boards on each bus
-const ADC_COUNT_B0: usize = 2;
-const ADC_COUNT_B1: usize = 1;
+const ADC_COUNT_B0: usize = 4;
+const ADC_COUNT_B1: usize = 4;
 
 const BOARD_COUNT: usize = ADC_COUNT_B0 + ADC_COUNT_B1;
 const CHANNEL_COUNT: usize = BOARD_COUNT * 4;
@@ -72,7 +73,7 @@ async fn main(spawner: Spawner) {
     let driver = UsbDriver::new(p.USB, Irqs);
 
     // Create embassy-usb Config
-    let mut config = Config::new(0xf569, 0x0001);
+    let mut config = embassy_usb::Config::new(0xf569, 0x0001);
     config.manufacturer = Some("CPR Therapeutics");
     config.product = Some("CPR Phantom");
     config.serial_number = Some("12345678");
@@ -121,7 +122,20 @@ async fn main(spawner: Spawner) {
     let mut usb = builder.build();
 
     // PWM pin for power to ADC board MOSFET
-    let mut adc_ppwm = Output::new(p.PIN_2, false.into());
+    // let mut adc_ppwm = Output::new(p.PIN_2, false.into());
+    let desired_freq_hz = 25_000;
+    let clock_freq_hz = embassy_rp::clocks::clk_sys_freq();
+    info!("PWM source clock freq: {}", clock_freq_hz);
+    let divider = 16u8;
+    let period = (clock_freq_hz / (desired_freq_hz * divider as u32)) as u16 - 1;
+
+    let mut c = embassy_rp::pwm::Config::default();
+    c.top = period;
+    c.divider = divider.into();
+
+    let mut adc_ppwm = Pwm::new_output_a(p.PWM_SLICE1, p.PIN_2, c.clone());
+    adc_ppwm.set_duty_cycle_percent(50).unwrap(); // 1/2 = 50%
+
     // general purpose pin for ADC board (not used yet)
     let mut _adc_gp = Output::new(p.PIN_3, false.into());
 
@@ -136,9 +150,9 @@ async fn main(spawner: Spawner) {
     let i2c1_bus = I2C1_BUS.init(Mutex::new(i2c1));
 
     let adc_task_spawn_results = [
-        spawner.spawn(adc_task_b1(
+        spawner.spawn(adc_task_b0(
             ads1015::Ads1015::new(ads1015::AdsAddressOptions::Addr48),
-            i2c1_bus,
+            i2c0_bus,
             0,
         )),
         spawner.spawn(adc_task_b0(
@@ -150,6 +164,31 @@ async fn main(spawner: Spawner) {
             ads1015::Ads1015::new(ads1015::AdsAddressOptions::Addr4A),
             i2c0_bus,
             2,
+        )),
+        spawner.spawn(adc_task_b0(
+            ads1015::Ads1015::new(ads1015::AdsAddressOptions::Addr4B),
+            i2c0_bus,
+            3,
+        )),
+        spawner.spawn(adc_task_b1(
+            ads1015::Ads1015::new(ads1015::AdsAddressOptions::Addr48),
+            i2c1_bus,
+            4,
+        )),
+        spawner.spawn(adc_task_b1(
+            ads1015::Ads1015::new(ads1015::AdsAddressOptions::Addr49),
+            i2c1_bus,
+            5,
+        )),
+        spawner.spawn(adc_task_b1(
+            ads1015::Ads1015::new(ads1015::AdsAddressOptions::Addr4A),
+            i2c1_bus,
+            6,
+        )),
+        spawner.spawn(adc_task_b1(
+            ads1015::Ads1015::new(ads1015::AdsAddressOptions::Addr4B),
+            i2c1_bus,
+            7,
         )),
     ];
     if !adc_task_spawn_results.iter().all(|x| x.is_ok()) {
@@ -203,13 +242,12 @@ async fn main(spawner: Spawner) {
             let start = now.as_micros();
             let timestamp = now.as_millis() as u32;
 
-            adc_ppwm.toggle();
-
             // keep header
             packet.truncate(3);
 
             // timestamp (4 bytes)
             packet.extend(timestamp.to_le_bytes());
+            // sender.write_packet(&packet).await.unwrap();
 
             // This only works if this task runs much faster than the ADCs can produce data!
             while let Ok(message) = messages::ADC_MESSAGE_CHANNEL.try_receive() {
@@ -224,10 +262,16 @@ async fn main(spawner: Spawner) {
             // put data in the packet
             for i in 0..sensor_data.len() {
                 packet.extend(sensor_data[i].to_le_bytes());
+                // sender.write_packet(&sensor_data[i].to_le_bytes()).await.unwrap();
             }
 
             // send packet to host
-            sender.write_packet(&packet).await.unwrap();
+            // only send 64 bytes at a time
+            for i in (0..packet.len()).step_by(64) {
+                let end = (i + 64).min(packet.len());
+                sender.write_packet(&packet[i..end]).await.unwrap();
+            }
+            // sender.write_packet(&packet).await.unwrap();
 
             // regulate loop speed
             let now = embassy_time::Instant::now();
