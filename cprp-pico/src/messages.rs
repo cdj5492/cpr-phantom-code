@@ -10,5 +10,5 @@ pub enum ADCMessage {
     /// (board id)
     DoneInitializing(u8),
     /// (reading, channel, board id)
-    Data(u16, u8, u8),
+    Data(i16, u8, u8),
 } 

@@ -202,7 +202,7 @@ async fn main(spawner: Spawner) {
     let mut packet = Vec::<u8, PACKET_SIZE>::new();
 
     // Current record of most recent reports for boards
-    let mut sensor_data = [0u16; CHANNEL_COUNT];
+    let mut sensor_data = [0i16; CHANNEL_COUNT];
 
     let send_adc_fut = async {
         // class.wait_connection().await;

@@ -34,6 +34,10 @@ pub async fn adc_task_b0(mut adc: ads1015::Ads1015, i2c_bus: &'static I2c0Bus, i
         for channel in 0..4 {
             let _ = adc.set_single_ended(&mut device_bus, channel as u8).await;
             adc.conversion_delay().await;
+            // while let Ok(false) = adc.available(&mut device_bus).await {
+            //     // small delay
+            //     embassy_time::Timer::after_millis(1).await;
+            // }
             if let Ok(val) = adc.get_last_conversion_results(&mut device_bus).await {
                 ADC_MESSAGE_CHANNEL
                     .send(ADCMessage::Data(val, channel as u8, id))
@@ -54,7 +58,7 @@ pub async fn adc_task_b1(mut adc: ads1015::Ads1015, i2c_bus: &'static I2c1Bus, i
         embassy_time::Timer::after_millis(500).await;
     }
     adc.set_sample_rate(ads1015::constants::CONFIG_RATE_3300HZ);
-    adc.set_gain(ads1015::constants::CONFIG_PGA_2);
+    adc.set_gain(ads1015::constants::CONFIG_PGA_4);
 
     // send a message to the main task
     ADC_MESSAGE_CHANNEL
@@ -65,6 +69,9 @@ pub async fn adc_task_b1(mut adc: ads1015::Ads1015, i2c_bus: &'static I2c1Bus, i
         for channel in 0..4 {
             let _ = adc.set_single_ended(&mut device_bus, channel as u8).await;
             adc.conversion_delay().await;
+            // while let Ok(false) = adc.available(&mut device_bus).await {
+            //     embassy_time::Timer::after_millis(1).await;
+            // }
             if let Ok(val) = adc.get_last_conversion_results(&mut device_bus).await {
                 ADC_MESSAGE_CHANNEL
                     .send(ADCMessage::Data(val, channel as u8, id))

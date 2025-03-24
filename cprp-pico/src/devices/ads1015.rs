@@ -509,27 +509,27 @@ impl Ads1015 {
     pub async fn get_last_conversion_results<T, I2cE>(
         &mut self,
         i2c: &mut T,
-    ) -> Result<u16, Ads1015Error<I2cE>>
+    ) -> Result<i16, Ads1015Error<I2cE>>
     where
         T: I2c<Error = I2cE>,
     {
-        // let data = self.read_block(i2c, constants::POINTER_CONVERT).await?;
-        // let mut result = ((u16::from(data[0]) << 8) | u16::from(data[1])) >> 4;
-        // if result > 0x07FF {
-        //     result -= 1 << 12;
-        // }
-        // Ok(result as i16)
-
         let data = self.read_block(i2c, constants::POINTER_CONVERT).await?;
-        let raw = u16::from(data[0]) << 8 | u16::from(data[1]);
-        Ok(raw >> 4)
+        let mut result = ((u16::from(data[0]) << 8) | u16::from(data[1])) >> 4;
+        if result > 0x07FF {
+            result -= 1 << 12;
+        }
+        Ok(result as i16)
+
+        // let data = self.read_block(i2c, constants::POINTER_CONVERT).await?;
+        // let raw = u16::from(data[0]) << 8 | u16::from(data[1]);
+        // Ok(raw >> 4)
     }
 
     /// Delays for an interval based on the current sample rate.
     pub async fn conversion_delay(&mut self) {
         use constants::*;
         let delay_micros = if self.sample_rate >= CONFIG_RATE_3300HZ {
-            1000
+            400
         } else if self.sample_rate >= CONFIG_RATE_2400HZ {
             500
         } else if self.sample_rate >= CONFIG_RATE_1600HZ {
