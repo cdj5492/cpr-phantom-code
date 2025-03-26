@@ -14,7 +14,7 @@ pub type I2c1Bus = Mutex<CriticalSectionRawMutex, I2c<'static, I2C1, embassy_rp:
 
 /// runs asynchronously for each board on I2C bus 0
 #[embassy_executor::task(pool_size=ADC_COUNT_B0)]
-pub async fn adc_task_b0(mut adc: ads1015::Ads1015, i2c_bus: &'static I2c0Bus, id: u8) -> ! {
+pub async fn adc_task_b0(mut adc: ads1015::Ads1015, i2c_bus: &'static I2c0Bus, gain: ads1015::AdsGainOptions, id: u8) -> ! {
     let mut device_bus = I2cDevice::new(i2c_bus);
 
     // initialize sensor
@@ -23,7 +23,7 @@ pub async fn adc_task_b0(mut adc: ads1015::Ads1015, i2c_bus: &'static I2c0Bus, i
         embassy_time::Timer::after_millis(500).await;
     }
     adc.set_sample_rate(ads1015::constants::CONFIG_RATE_3300HZ);
-    adc.set_gain(ads1015::constants::CONFIG_PGA_4);
+    adc.set_gain(gain);
 
     // send a message to the main task
     ADC_MESSAGE_CHANNEL
@@ -49,7 +49,7 @@ pub async fn adc_task_b0(mut adc: ads1015::Ads1015, i2c_bus: &'static I2c0Bus, i
 
 /// runs asynchronously for each board on I2C bus 1
 #[embassy_executor::task(pool_size=ADC_COUNT_B1)]
-pub async fn adc_task_b1(mut adc: ads1015::Ads1015, i2c_bus: &'static I2c1Bus, id: u8) -> ! {
+pub async fn adc_task_b1(mut adc: ads1015::Ads1015, i2c_bus: &'static I2c1Bus, gain: ads1015::AdsGainOptions, id: u8) -> ! {
     let mut device_bus = I2cDevice::new(i2c_bus);
 
     // initialize sensor
@@ -58,7 +58,7 @@ pub async fn adc_task_b1(mut adc: ads1015::Ads1015, i2c_bus: &'static I2c1Bus, i
         embassy_time::Timer::after_millis(500).await;
     }
     adc.set_sample_rate(ads1015::constants::CONFIG_RATE_3300HZ);
-    adc.set_gain(ads1015::constants::CONFIG_PGA_4);
+    adc.set_gain(gain);
 
     // send a message to the main task
     ADC_MESSAGE_CHANNEL

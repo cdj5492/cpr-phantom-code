@@ -1,4 +1,3 @@
-use constants::AVAILABLE_I2C_ADDRESSES;
 use embassy_time::Timer;
 use embedded_hal_async::i2c::I2c;
 
@@ -92,10 +91,34 @@ pub enum AdsAddressOptions {
 impl AdsAddressOptions {
     pub fn address(self) -> u8 {
         match self {
-            Self::Addr48 => AVAILABLE_I2C_ADDRESSES[0],
-            Self::Addr49 => AVAILABLE_I2C_ADDRESSES[1],
-            Self::Addr4A => AVAILABLE_I2C_ADDRESSES[2],
-            Self::Addr4B => AVAILABLE_I2C_ADDRESSES[3],
+            Self::Addr48 => constants::AVAILABLE_I2C_ADDRESSES[0],
+            Self::Addr49 => constants::AVAILABLE_I2C_ADDRESSES[1],
+            Self::Addr4A => constants::AVAILABLE_I2C_ADDRESSES[2],
+            Self::Addr4B => constants::AVAILABLE_I2C_ADDRESSES[3],
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub enum AdsGainOptions {
+    #[default]
+    TwoThirds,
+    One,
+    Two,
+    Four,
+    Eight,
+    Sixteen,
+}
+
+impl AdsGainOptions {
+    pub fn gain(self) -> u16 {
+        match self {
+            Self::TwoThirds => constants::CONFIG_PGA_TWO_THIRDS,
+            Self::One => constants::CONFIG_PGA_1,
+            Self::Two => constants::CONFIG_PGA_2,
+            Self::Four => constants::CONFIG_PGA_4,
+            Self::Eight => constants::CONFIG_PGA_8,
+            Self::Sixteen => constants::CONFIG_PGA_16,
         }
     }
 }
@@ -106,7 +129,7 @@ impl AdsAddressOptions {
 pub struct Ads1015 {
     addr: u8,
     sample_rate: u16,
-    gain: u16,
+    gain: AdsGainOptions,
     use_conversion_ready: bool,
     mode: u16,
     multiplier_to_volts: f32,
@@ -123,7 +146,7 @@ impl Ads1015 {
             addr,
             // Default sample rate is 1600 Hz and gain ±2.048 V.
             sample_rate: constants::CONFIG_RATE_1600HZ,
-            gain: constants::CONFIG_PGA_2,
+            gain: AdsGainOptions::Two,
             use_conversion_ready: false,
             mode: constants::CONFIG_MODE_CONT,
             multiplier_to_volts: 1.0,
@@ -177,7 +200,7 @@ impl Ads1015 {
             return Err(Ads1015Error::InvalidChannel);
         }
         use constants::*;
-        let mut config: u16 = CONFIG_OS_SINGLE | CONFIG_CQUE_NONE | self.sample_rate | self.gain;
+        let mut config: u16 = CONFIG_OS_SINGLE | CONFIG_CQUE_NONE | self.sample_rate | self.gain.gain();
         config |= if self.use_conversion_ready {
             CONFIG_MODE_SINGLE
         } else {
@@ -212,7 +235,7 @@ impl Ads1015 {
             return Err(Ads1015Error::InvalidChannel);
         }
         use constants::*;
-        let mut config: u16 = CONFIG_OS_SINGLE | CONFIG_CQUE_NONE | self.sample_rate | self.gain;
+        let mut config: u16 = CONFIG_OS_SINGLE | CONFIG_CQUE_NONE | self.sample_rate | self.gain.gain();
         config |= if self.use_conversion_ready {
             CONFIG_MODE_SINGLE
         } else {
@@ -293,7 +316,7 @@ impl Ads1015 {
         {
             return Err(Ads1015Error::Other);
         }
-        let mut config: u16 = CONFIG_OS_SINGLE | CONFIG_CQUE_NONE | self.sample_rate | self.gain;
+        let mut config: u16 = CONFIG_OS_SINGLE | CONFIG_CQUE_NONE | self.sample_rate | self.gain.gain();
         config |= if self.use_conversion_ready {
             CONFIG_MODE_SINGLE
         } else {
@@ -416,27 +439,25 @@ impl Ads1015 {
     }
 
     /// Sets the gain value.
-    pub fn set_gain(&mut self, gain: u16) {
-        self.gain = gain & constants::CONFIG_PGA_MASK;
+    pub fn set_gain(&mut self, gain: AdsGainOptions) {
+        self.gain = gain;
         self.update_multiplier_to_volts();
     }
 
     /// Gets the current gain value.
-    pub fn get_gain(&self) -> u16 {
+    pub fn get_gain(&self) -> AdsGainOptions{
         self.gain
     }
 
     /// Updates the multiplier to convert ADC counts to volts.
     fn update_multiplier_to_volts(&mut self) {
-        use constants::*;
-        self.multiplier_to_volts = match self.gain {
-            CONFIG_PGA_TWO_THIRDS => 3.0,
-            CONFIG_PGA_1 => 2.0,
-            CONFIG_PGA_2 => 1.0,
-            CONFIG_PGA_4 => 0.5,
-            CONFIG_PGA_8 => 0.25,
-            CONFIG_PGA_16 => 0.125,
-            _ => 1.0,
+        self.multiplier_to_volts = match AdsGainOptions::from(self.gain) {
+            AdsGainOptions::TwoThirds => 3.0,
+            AdsGainOptions::One => 2.0,
+            AdsGainOptions::Two => 1.0,
+            AdsGainOptions::Four => 0.5,
+            AdsGainOptions::Eight => 0.25,
+            AdsGainOptions::Sixteen => 0.125,
         };
     }
 
@@ -488,7 +509,7 @@ impl Ads1015 {
         use constants::*;
         let mut config: u16 = CONFIG_MODE_CONT | self.sample_rate | CONFIG_CQUE_1CONV
             | CONFIG_CLAT_LATCH | CONFIG_CPOL_ACTV_LOW | CONFIG_CMODE_TRAD;
-        config |= self.gain;
+        config |= self.gain.gain();
         config |= match channel {
             0 => CONFIG_MUX_SINGLE0,
             1 => CONFIG_MUX_SINGLE1,
@@ -529,9 +550,9 @@ impl Ads1015 {
     pub async fn conversion_delay(&mut self) {
         use constants::*;
         let delay_micros = if self.sample_rate >= CONFIG_RATE_3300HZ {
-            400
+            600
         } else if self.sample_rate >= CONFIG_RATE_2400HZ {
-            500
+            700
         } else if self.sample_rate >= CONFIG_RATE_1600HZ {
             1000
         } else if self.sample_rate >= CONFIG_RATE_920HZ {
