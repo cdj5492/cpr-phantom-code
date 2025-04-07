@@ -5,22 +5,21 @@ use defmt::info;
 use devices::ads1015::{self};
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
+use embassy_rp::adc::{Adc, Channel};
 use embassy_rp::bind_interrupts;
 use embassy_rp::gpio::{Output, Pull};
 use embassy_rp::i2c::I2c;
 use embassy_rp::peripherals::{I2C0, I2C1, USB};
-use embassy_rp::pwm::{Pwm, SetDutyCycle};
 use embassy_rp::usb::Driver as UsbDriver;
-use embassy_rp::adc::{Adc, Channel};
 
 use embassy_sync::mutex::Mutex;
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::msos::{self, windows_version};
-use embassy_usb::{Builder};
+use embassy_usb::Builder;
 use heapless::Vec;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
-// use {defmt_rtt as _, panic_reset as _};
+// use {defmt_rtt as _, panic_probe as _};
+use {defmt_rtt as _, panic_reset as _};
 
 #[allow(dead_code)]
 mod devices;
@@ -42,7 +41,7 @@ const CHANNEL_COUNT: usize = BOARD_COUNT * 4;
 const MAGIC: u16 = 0xAA55;
 
 /// Size of the packet in bytes
-const PACKET_SIZE: usize = 2 + 1 + 4 + CHANNEL_COUNT * 2 as usize;
+const PACKET_SIZE: usize = 2 + 1 + 4 + CHANNEL_COUNT * 2 + 3 * 2;
 
 /// Ideally how many packets should we be sending per second?
 const TARGET_PACKET_RATE: u64 = 1000;
@@ -129,7 +128,7 @@ async fn main(spawner: Spawner) {
     let mut usb = builder.build();
 
     // PWM pin for power to ADC board MOSFET
-    let mut adc_ppwm = Output::new(p.PIN_2, true.into());
+    // let adc_ppwm = Output::new(p.PIN_2, true.into());
     // let desired_freq_hz = 250_000;
     // let clock_freq_hz = embassy_rp::clocks::clk_sys_freq();
     // info!("PWM source clock freq: {}", clock_freq_hz);
@@ -234,7 +233,7 @@ async fn main(spawner: Spawner) {
         // build packet header
         // MAGIC (2 bytes), data length (1 bytes),
         packet.extend(MAGIC.to_le_bytes());
-        let _ = packet.push((ADC_COUNT_B0 * 8 + ADC_COUNT_B1 * 8 + 4 + 3*2) as u8);
+        let _ = packet.push((ADC_COUNT_B0 * 8 + ADC_COUNT_B1 * 8 + 4 + 3 * 2) as u8);
 
         indicator.set_high();
 
@@ -245,7 +244,7 @@ async fn main(spawner: Spawner) {
                 messages::ADCMessage::DoneInitializing(id) => {
                     boards_initialized += 1;
                     info!("Connected new ADC {}", id);
-                },
+                }
                 messages::ADCMessage::Data(val, channel, id) => {
                     sensor_data[id as usize * 4 + channel as usize] = val;
                 }
@@ -261,10 +260,10 @@ async fn main(spawner: Spawner) {
             // timestamp (4 bytes)
             packet.extend(timestamp.to_le_bytes());
 
-            // insert on-board adcs
-            packet.extend(built_in_adc.read(&mut p26).await.unwrap_or(0).to_le_bytes());
-            packet.extend(built_in_adc.read(&mut p27).await.unwrap_or(0).to_le_bytes());
-            packet.extend(built_in_adc.read(&mut p28).await.unwrap_or(0).to_le_bytes());
+            // insert on-board ADCs
+            packet.extend(built_in_adc.read(&mut p26).await.unwrap_or(u16::MIN).to_le_bytes());
+            packet.extend(built_in_adc.read(&mut p27).await.unwrap_or(u16::MIN).to_le_bytes());
+            packet.extend(built_in_adc.read(&mut p28).await.unwrap_or(u16::MIN).to_le_bytes());
 
             // put data in the packet
             for i in 0..sensor_data.len() {
@@ -281,7 +280,10 @@ async fn main(spawner: Spawner) {
             // regulate loop speed
             let now = embassy_time::Instant::now();
             let elapsed = now.as_micros() - start;
-            embassy_time::Timer::after_micros((1_000_000 / TARGET_PACKET_RATE).saturating_sub(elapsed)).await;
+            embassy_time::Timer::after_micros(
+                (1_000_000 / TARGET_PACKET_RATE).saturating_sub(elapsed),
+            )
+            .await;
         }
 
         indicator.set_low();
@@ -309,6 +311,11 @@ async fn main(spawner: Spawner) {
                 }
             }
 
+            // insert on-board ADCs
+            packet.extend(built_in_adc.read(&mut p26).await.unwrap_or(0).to_le_bytes());
+            packet.extend(built_in_adc.read(&mut p27).await.unwrap_or(0).to_le_bytes());
+            packet.extend(built_in_adc.read(&mut p28).await.unwrap_or(0).to_le_bytes());
+
             // put data in the packet
             for i in 0..sensor_data.len() {
                 packet.extend(sensor_data[i].to_le_bytes());
@@ -324,7 +331,10 @@ async fn main(spawner: Spawner) {
             // regulate loop speed
             let now = embassy_time::Instant::now();
             let elapsed = now.as_micros() - start;
-            embassy_time::Timer::after_micros((1_000_000 / TARGET_PACKET_RATE).saturating_sub(elapsed)).await;
+            embassy_time::Timer::after_micros(
+                (1_000_000 / TARGET_PACKET_RATE).saturating_sub(elapsed),
+            )
+            .await;
         }
     };
 
@@ -339,4 +349,3 @@ async fn main(spawner: Spawner) {
         embassy_time::Timer::after_millis(500).await;
     }
 }
-

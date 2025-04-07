@@ -9,9 +9,12 @@ use serialport::{SerialPort, SerialPortType};
 
 use Sensor::*;
 
+use clap::Parser;
+
+mod rib;
+
 const MAGIC: u16 = 0xAA55;
 const TARGET_VENDOR_ID: u16 = 0xf569;
-
 
 /// constant array of flat values for each flex sensor
 const ZERO_FLEX_VALUES: [f32; 25] = [
@@ -71,7 +74,7 @@ const ZERO_FLEX_VALUES: [f32; 25] = [
 // ];
 
 const MULTIPLIER_FLEX_VALUES: [f32; 25] = [
-    1.0, // TODO: check this one (short one)                      
+    1.0,            // TODO: check this one (short one)
     0.008333333333, // 1
     0.01032608696,  // 2
     0.006597222222, // 3
@@ -101,13 +104,13 @@ const MULTIPLIER_FLEX_VALUES: [f32; 25] = [
 /// Each force sensor has a different calibration curve.
 /// Store those curves in this array.
 const FORCE_CURVES: [fn(f32) -> f32; 7] = [
-    |x| x * (x * (x * 1.62e-08 + 1.70e-06) + 0.0185) + 0.0974,   // 0
-    |x| x * (x * (x * 3.09e-08 + -1.78e-05) + 0.0261) + 0.0762,   // 1
-    |x| x * (x * (x * -1.88e-08 + 4.83e-05) + 0.0090) + 0.0051,   // 2
-    |x| x * (x * (x * 3.00e-08 + -1.28e-05) + 0.0225) + 0.2349,   // 3
-    |x| x * (x * (x * -6.63e-08 + 7.81e-05) + 0.0065) + 0.3268,   // 4
-    |x| x * (x * (x * -5.02e-08 + 9.06e-05) + -0.0034) + 0.2722,   // 5
-    |x| x * (x * (x * 2.19e-09 + 2.42e-05) + 0.0118) + 0.1831,   // 6
+    |x| x * (x * (x * 1.62e-08 + 1.70e-06) + 0.0185) + 0.0974, // 0
+    |x| x * (x * (x * 3.09e-08 + -1.78e-05) + 0.0261) + 0.0762, // 1
+    |x| x * (x * (x * -1.88e-08 + 4.83e-05) + 0.0090) + 0.0051, // 2
+    |x| x * (x * (x * 3.00e-08 + -1.28e-05) + 0.0225) + 0.2349, // 3
+    |x| x * (x * (x * -6.63e-08 + 7.81e-05) + 0.0065) + 0.3268, // 4
+    |x| x * (x * (x * -5.02e-08 + 9.06e-05) + -0.0034) + 0.2722, // 5
+    |x| x * (x * (x * 2.19e-09 + 2.42e-05) + 0.0118) + 0.1831, // 6
 ];
 // const FORCE_CURVES: [fn(f32) -> f32; 7] = [
 //     |x| x * (x * (x * 1.62e-8 + 1.70e-6) + 0.0185)  + 0.0974,   // 0
@@ -123,16 +126,42 @@ const FORCE_CURVES: [fn(f32) -> f32; 7] = [
 /// Store the type and id of each sensor and associated channel in this array.
 /// WARNING: Does not enforce mutual exclusivity of flex and force sensors.
 const CHANNEL_SENSOR_ID_MAP: [Sensor; 35] = [
-    Potentiometer(0), Potentiometer(1), Potentiometer(2), // built-in channels
-    Flex(1), Flex(2), Flex(3), Flex(4), // board 0
-    Flex(5), Flex(6), Flex(7), Flex(8), // board 1
-    Flex(9), Flex(10), Flex(11), Flex(12), // board 2
-    Flex(0), Force(0), Force(1), Force(2), // board 3
-    Force(3), Force(4), Force(5), Force(6), // board 4
-    Flex(13), Flex(14), Flex(15), Flex(16), // board 5
-    Flex(17), Flex(18), Flex(19), Flex(20), // board 6
-    Flex(21), Flex(22), Flex(23), Flex(24), // board 7
-];  
+    Potentiometer(0),
+    Potentiometer(1),
+    Potentiometer(2), // built-in channels
+    Flex(1),
+    Flex(2),
+    Flex(3),
+    Flex(4), // board 0
+    Flex(5),
+    Flex(6),
+    Flex(7),
+    Flex(8), // board 1
+    Flex(9),
+    Flex(10),
+    Flex(11),
+    Flex(12), // board 2
+    Flex(0),
+    Force(0),
+    Force(1),
+    Force(2), // board 3
+    Force(3),
+    Force(4),
+    Force(5),
+    Force(6), // board 4
+    Flex(13),
+    Flex(14),
+    Flex(15),
+    Flex(16), // board 5
+    Flex(17),
+    Flex(18),
+    Flex(19),
+    Flex(20), // board 6
+    Flex(21),
+    Flex(22),
+    Flex(23),
+    Flex(24), // board 7
+];
 
 enum Sensor {
     /// (ID,)
@@ -151,19 +180,27 @@ impl Sensor {
                 let x = ZERO_FLEX_VALUES[*id] - x as f32;
                 let mult = MULTIPLIER_FLEX_VALUES[*id];
                 x * mult
-            },
+            }
             Force(id) => {
                 // return x as f32;
                 FORCE_CURVES[*id](x as f32)
-            },
+            }
             Potentiometer(_id) => {
                 // TODO: implement curves
                 x as f32
-            },
+            }
         }
     }
 }
 
+/// command line args
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct Args {
+    /// If included, send raw data (no calibration)
+    #[arg(short, long)]
+    raw: bool,
+}
 
 #[derive(Serialize)]
 struct DataPacket {
@@ -259,6 +296,14 @@ fn open_serial_port(baud_rate: u32) -> Option<Box<dyn SerialPort>> {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
+    let cli = Args::parse();
+
+    if cli.raw {
+        println!("Raw mode enabled. No calibration will be applied.");
+    } else {
+        println!("Calibration mode enabled. Data will be calibrated.");
+    }
+
     // --- Configuration ---
     let baud_rate = 115200;
     let udp_ip = "127.0.0.1";
@@ -317,7 +362,11 @@ fn main() -> Result<(), Box<dyn Error>> {
                     }
 
                     // Process the ADC values.
-                    let adc_values = process_data(adc_values);
+                    let adc_values = if cli.raw {
+                        adc_values.iter().map(|x| *x as f32).collect()
+                    } else {
+                        process_data(adc_values)
+                    };
 
                     // Create JSON structure for UDP transmission.
                     let data = DataPacket {
