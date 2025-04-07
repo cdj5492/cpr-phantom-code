@@ -4,7 +4,7 @@ use std::net::UdpSocket;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crossterm::cursor::{MoveTo, RestorePosition, SavePosition};
+use crossterm::cursor::{MoveTo, MoveToColumn, MoveToPreviousLine, RestorePosition, SavePosition};
 use crossterm::terminal::{size, Clear, ClearType};
 use crossterm::ExecutableCommand;
 use serde::Serialize;
@@ -411,21 +411,13 @@ fn main() -> Result<(), Box<dyn Error>> {
                     // Print packets per second every second.
                     let current_time = Instant::now();
                     if current_time.duration_since(last_time) >= Duration::from_secs(1) {
-                        // Save the current cursor position so that other prints are not disturbed.
-                        stdout.execute(SavePosition)?;
-                        
-                        // Get terminal dimensions so we can update the bottom line.
-                        let (_cols, rows) = size()?;
-                        // Move to the bottom line.
-                        stdout.execute(MoveTo(0, rows - 1))?;
-                        // Clear the current line.
+                        // go back to start of current line
+                        stdout.execute(MoveToColumn(0))?;
+                        // stdout.execute(MoveToPreviousLine(1))?;
+                        // clear line
                         stdout.execute(Clear(ClearType::CurrentLine))?;
-                        // Print the updated packets per second.
                         print!("Packets per second: {}", packet_count);
-                        stdout.flush()?;
-                        
-                        // Restore the previous cursor position.
-                        stdout.execute(RestorePosition)?;
+                        stdout.flush()?; 
 
                         packet_count = 0;
                         last_time = current_time;
