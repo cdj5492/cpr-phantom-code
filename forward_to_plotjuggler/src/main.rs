@@ -1,9 +1,12 @@
 use std::error::Error;
-use std::io::ErrorKind;
+use std::io::{stdout, ErrorKind, Write};
 use std::net::UdpSocket;
 use std::thread;
 use std::time::{Duration, Instant};
 
+use crossterm::cursor::{MoveTo, RestorePosition, SavePosition};
+use crossterm::terminal::{size, Clear, ClearType};
+use crossterm::ExecutableCommand;
 use serde::Serialize;
 use serialport::{SerialPort, SerialPortType};
 
@@ -306,6 +309,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         println!("Calibration mode enabled. Data will be calibrated.");
     }
 
+    // --- Crossterm stdout setup ---
+    let mut stdout = stdout();
+
     // --- Configuration ---
     let baud_rate = 115200;
     let udp_ip = "127.0.0.1";
@@ -405,7 +411,22 @@ fn main() -> Result<(), Box<dyn Error>> {
                     // Print packets per second every second.
                     let current_time = Instant::now();
                     if current_time.duration_since(last_time) >= Duration::from_secs(1) {
-                        println!("Packets per second: {}", packet_count);
+                        // Save the current cursor position so that other prints are not disturbed.
+                        stdout.execute(SavePosition)?;
+                        
+                        // Get terminal dimensions so we can update the bottom line.
+                        let (_cols, rows) = size()?;
+                        // Move to the bottom line.
+                        stdout.execute(MoveTo(0, rows - 1))?;
+                        // Clear the current line.
+                        stdout.execute(Clear(ClearType::CurrentLine))?;
+                        // Print the updated packets per second.
+                        print!("Packets per second: {}", packet_count);
+                        stdout.flush()?;
+                        
+                        // Restore the previous cursor position.
+                        stdout.execute(RestorePosition)?;
+
                         packet_count = 0;
                         last_time = current_time;
                     }
