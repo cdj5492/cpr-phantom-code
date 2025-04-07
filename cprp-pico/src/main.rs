@@ -235,19 +235,23 @@ async fn main(spawner: Spawner) {
         packet.extend(MAGIC.to_le_bytes());
         let _ = packet.push((ADC_COUNT_B0 * 8 + ADC_COUNT_B1 * 8 + 4 + 3 * 2) as u8);
 
-        indicator.set_high();
-
         // wait for a DoneIntializing packet from each board
         let mut boards_initialized = 0;
-        while boards_initialized < BOARD_COUNT {
-            match messages::ADC_MESSAGE_CHANNEL.receive().await {
-                messages::ADCMessage::DoneInitializing(id) => {
-                    boards_initialized += 1;
-                    info!("Connected new ADC {}", id);
+
+        loop {
+            if boards_initialized < BOARD_COUNT {
+                match messages::ADC_MESSAGE_CHANNEL.receive().await {
+                    messages::ADCMessage::DoneInitializing(id) => {
+                        boards_initialized += 1;
+                        info!("Connected new ADC {}", id);
+                    }
+                    messages::ADCMessage::Data(val, channel, id) => {
+                        sensor_data[id as usize * 4 + channel as usize] = val;
+                    }
                 }
-                messages::ADCMessage::Data(val, channel, id) => {
-                    sensor_data[id as usize * 4 + channel as usize] = val;
-                }
+                indicator.set_high();
+            } else {
+                indicator.set_low();
             }
 
             let now = embassy_time::Instant::now();
@@ -264,57 +268,6 @@ async fn main(spawner: Spawner) {
             packet.extend(built_in_adc.read(&mut p26).await.unwrap_or(u16::MIN).to_le_bytes());
             packet.extend(built_in_adc.read(&mut p27).await.unwrap_or(u16::MIN).to_le_bytes());
             packet.extend(built_in_adc.read(&mut p28).await.unwrap_or(u16::MIN).to_le_bytes());
-
-            // put data in the packet
-            for i in 0..sensor_data.len() {
-                packet.extend(sensor_data[i].to_le_bytes());
-            }
-
-            // send packet to host
-            // only send 64 bytes at a time
-            for i in (0..packet.len()).step_by(64) {
-                let end = (i + 64).min(packet.len());
-                sender.write_packet(&packet[i..end]).await.unwrap();
-            }
-
-            // regulate loop speed
-            let now = embassy_time::Instant::now();
-            let elapsed = now.as_micros() - start;
-            embassy_time::Timer::after_micros(
-                (1_000_000 / TARGET_PACKET_RATE).saturating_sub(elapsed),
-            )
-            .await;
-        }
-
-        indicator.set_low();
-
-        info!("All ADCs connected.");
-
-        loop {
-            let now = embassy_time::Instant::now();
-            let start = now.as_micros();
-            let timestamp = now.as_millis() as u32;
-
-            // keep header
-            packet.truncate(3);
-
-            // timestamp (4 bytes)
-            packet.extend(timestamp.to_le_bytes());
-
-            // This only works if this task runs much faster than the ADCs can produce data!
-            while let Ok(message) = messages::ADC_MESSAGE_CHANNEL.try_receive() {
-                match message {
-                    messages::ADCMessage::Data(val, channel, id) => {
-                        sensor_data[id as usize * 4 + channel as usize] = val;
-                    }
-                    _ => (),
-                }
-            }
-
-            // insert on-board ADCs
-            packet.extend(built_in_adc.read(&mut p26).await.unwrap_or(0).to_le_bytes());
-            packet.extend(built_in_adc.read(&mut p27).await.unwrap_or(0).to_le_bytes());
-            packet.extend(built_in_adc.read(&mut p28).await.unwrap_or(0).to_le_bytes());
 
             // put data in the packet
             for i in 0..sensor_data.len() {
