@@ -6,11 +6,12 @@ use devices::ads1015::{self};
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_rp::bind_interrupts;
-use embassy_rp::gpio::Output;
+use embassy_rp::gpio::{Output, Pull};
 use embassy_rp::i2c::I2c;
 use embassy_rp::peripherals::{I2C0, I2C1, USB};
 use embassy_rp::pwm::{Pwm, SetDutyCycle};
 use embassy_rp::usb::Driver as UsbDriver;
+use embassy_rp::adc::{Adc, Channel};
 
 use embassy_sync::mutex::Mutex;
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
@@ -50,6 +51,7 @@ bind_interrupts!(struct Irqs {
     USBCTRL_IRQ => embassy_rp::usb::InterruptHandler<USB>;
     I2C0_IRQ => embassy_rp::i2c::InterruptHandler<I2C0>;
     I2C1_IRQ => embassy_rp::i2c::InterruptHandler<I2C1>;
+    ADC_IRQ_FIFO => embassy_rp::adc::InterruptHandler;
 });
 
 bind_interrupts!(
@@ -59,6 +61,11 @@ bind_interrupts!(
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
+
+    let mut built_in_adc = Adc::new(p.ADC, Irqs, embassy_rp::adc::Config::default());
+    let mut p26 = Channel::new_pin(p.PIN_26, Pull::None);
+    let mut p27 = Channel::new_pin(p.PIN_27, Pull::None);
+    let mut p28 = Channel::new_pin(p.PIN_28, Pull::None);
 
     let mut indicator = Output::new(p.PIN_25, false.into());
     // blink at the beginning rapidly 3 times to show it's the beginning
@@ -227,7 +234,7 @@ async fn main(spawner: Spawner) {
         // build packet header
         // MAGIC (2 bytes), data length (1 bytes),
         packet.extend(MAGIC.to_le_bytes());
-        let _ = packet.push((ADC_COUNT_B0 * 8 + ADC_COUNT_B1 * 8 + 4) as u8);
+        let _ = packet.push((ADC_COUNT_B0 * 8 + ADC_COUNT_B1 * 8 + 4 + 3*2) as u8);
 
         indicator.set_high();
 
@@ -253,6 +260,11 @@ async fn main(spawner: Spawner) {
 
             // timestamp (4 bytes)
             packet.extend(timestamp.to_le_bytes());
+
+            // insert on-board adcs
+            packet.extend(built_in_adc.read(&mut p26).await.unwrap_or(0).to_le_bytes());
+            packet.extend(built_in_adc.read(&mut p27).await.unwrap_or(0).to_le_bytes());
+            packet.extend(built_in_adc.read(&mut p28).await.unwrap_or(0).to_le_bytes());
 
             // put data in the packet
             for i in 0..sensor_data.len() {

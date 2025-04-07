@@ -122,7 +122,8 @@ const FORCE_CURVES: [fn(f32) -> f32; 7] = [
 /// Each channel on each board corresponds to a specific sensor, either a flex or a force sensor.
 /// Store the type and id of each sensor and associated channel in this array.
 /// WARNING: Does not enforce mutual exclusivity of flex and force sensors.
-const CHANNEL_SENSOR_ID_MAP: [Sensor; 32] = [
+const CHANNEL_SENSOR_ID_MAP: [Sensor; 35] = [
+    Potentiometer(0), Potentiometer(1), Potentiometer(2), // built-in channels
     Flex(1), Flex(2), Flex(3), Flex(4), // board 0
     Flex(5), Flex(6), Flex(7), Flex(8), // board 1
     Flex(9), Flex(10), Flex(11), Flex(12), // board 2
@@ -138,6 +139,8 @@ enum Sensor {
     Flex(usize),
     /// (ID,)
     Force(usize),
+    /// (ID,)
+    Potentiometer(usize),
 }
 
 impl Sensor {
@@ -152,6 +155,10 @@ impl Sensor {
             Force(id) => {
                 // return x as f32;
                 FORCE_CURVES[*id](x as f32)
+            },
+            Potentiometer(_id) => {
+                // TODO: implement curves
+                x as f32
             },
         }
     }
