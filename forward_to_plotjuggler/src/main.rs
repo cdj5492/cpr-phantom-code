@@ -1,7 +1,6 @@
 use std::error::Error;
 use std::io::ErrorKind;
 use std::net::UdpSocket;
-use std::os::windows::process;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -11,72 +10,118 @@ use serialport::{SerialPort, SerialPortType};
 use Sensor::*;
 
 const MAGIC: u16 = 0xAA55;
-// Change this to the vendor ID you want to target.
 const TARGET_VENDOR_ID: u16 = 0xf569;
 
-enum Sensor {
-    Flex(usize),
-    Force(usize),
-}
 
-impl Sensor {
-    fn apply_calibration(&self, x: i32) -> f32 {
-        match self {
-            Flex(id) => {
-                let x = x as f32 - ZERO_FLEX_VALUES[*id - 1];
-                // x * (x * 7.45e-6 - 0.0209) + 13.8
-                x * (x * 7.45e-6 - 5.43e-3) + 0.174
-            },
-            Force(id) => {
-                let x = x as f32 - ZERO_FORCE_VALUES[*id - 1];
-                // TODO: re-do this
-                x * (x * (x * 2.2e-5 + 0.0479) + 5.34) - 53.7
-            },
-        }
-    }
-}
-
-
-// constant array of flat values for each flex sensor
+/// constant array of flat values for each flex sensor
 const ZERO_FLEX_VALUES: [f32; 25] = [
-    1162.0, // TODO: check this one
-    1134.0,
-    1168.0,
-    1207.0,
-    1175.0,
-    1215.0,
-    1153.0,
-    1120.0,
-    1205.0,
-    1148.0,
-    1203.0,
-    1190.0,
-    1080.0,
-    1191.0,
-    1175.0,
-    1123.0,
-    1146.0,
-    1205.0,
-    1145.0,
-    1112.0,
-    1175.0,
-    1084.0,
-    1026.0,
-    1020.0,
-    1122.0
+    1162.0, // TODO: check this one (short one)
+    1134.0, // 1
+    1168.0, // 2
+    1207.0, // 3
+    1175.0, // 4
+    1215.0, // 5
+    1153.0, // 6
+    1120.0, // 7
+    1205.0, // 8
+    1148.0, // 9
+    1203.0, // 10
+    1190.0, // 11
+    1080.0, // 12
+    1191.0, // 13
+    1175.0, // 14
+    1123.0, // 15
+    1146.0, // 16
+    1205.0, // 17
+    1145.0, // 18
+    1112.0, // 19
+    1175.0, // 20
+    970.0,  // 21
+    1002.0, // 22
+    1015.0, // 23
+    1122.0, // 24
 ];
 
-// constant array of flat values for each force sensor
-const ZERO_FORCE_VALUES: [f32; 7] = [
-    0.0,
-    0.0,
-    0.0,
-    0.0,
-    0.0,
-    0.0,
-    0.0
+// const MULTIPLIER_FLEX_VALUES: [f32; 25] = [
+//     1.0, // TODO: check this one (short one)
+//     0.00736434108, // 1
+//     0.00940594059, // 2
+//     0.00616883116, // 3
+//     0.00766129032, // 4
+//     0.0076       , // 5
+//     0.00565476190, // 6
+//     0.00579268292, // 7
+//     0.00452380952, // 8
+//     0.00494791666, // 9
+//     0.00896226415, // 10
+//     0.00678571428, // 11
+//     0.0095       , // 12
+//     0.00714285714, // 13
+//     0.00424107142, // 14
+//     0.00489690721, // 15
+//     0.00871559633, // 16
+//     0.00833333333, // 17
+//     0.01376811594, // 18
+//     0.00650684931, // 19
+//     0.00669014084, // 20
+//     0.01079545455, // 21
+//     0.0065,        // 22
+//     0.00748,       // 23
+//     0.00969387755, // 24
+// ];
+
+const MULTIPLIER_FLEX_VALUES: [f32; 25] = [
+    1.0, // TODO: check this one (short one)                      
+    0.008333333333, // 1
+    0.01032608696,  // 2
+    0.006597222222, // 3
+    0.0095,         // 4
+    0.01010638298,  // 5
+    0.008050847458, // 6
+    0.007089552239, // 7
+    0.005277777778, // 8
+    0.005107526882, // 9
+    0.008962264151, // 10
+    0.00753968254,  // 11
+    0.009693877551, // 12
+    0.00931372549,  // 13
+    0.005337078652, // 14
+    0.006506849315, // 15
+    0.01130952381,  // 16
+    0.0095,         // 17
+    0.01696428571,  // 18
+    0.008050847458, // 19
+    0.008636363636, // 20
+    0.01357142857,  // 21
+    0.004702970297, // 22
+    0.0059375,      // 23
+    0.009895833333, // 24
 ];
 
+/// Each force sensor has a different calibration curve.
+/// Store those curves in this array.
+const FORCE_CURVES: [fn(f32) -> f32; 7] = [
+    |x| x * (x * (x * 1.62e-08 + 1.70e-06) + 0.0185) + 0.0974,   // 0
+    |x| x * (x * (x * 3.09e-08 + -1.78e-05) + 0.0261) + 0.0762,   // 1
+    |x| x * (x * (x * -1.88e-08 + 4.83e-05) + 0.0090) + 0.0051,   // 2
+    |x| x * (x * (x * 3.00e-08 + -1.28e-05) + 0.0225) + 0.2349,   // 3
+    |x| x * (x * (x * -6.63e-08 + 7.81e-05) + 0.0065) + 0.3268,   // 4
+    |x| x * (x * (x * -5.02e-08 + 9.06e-05) + -0.0034) + 0.2722,   // 5
+    |x| x * (x * (x * 2.19e-09 + 2.42e-05) + 0.0118) + 0.1831,   // 6
+];
+// const FORCE_CURVES: [fn(f32) -> f32; 7] = [
+//     |x| x * (x * (x * 1.62e-8 + 1.70e-6) + 0.0185)  + 0.0974,   // 0
+//     |x| x * (x * (x * 3.09e-8 - 1.78e-5) + 0.0261)  + 0.0762,   // 1
+//     |x| x * (x * (x * 1.25e-7 - 4.70e-5) + 0.0123) - 0.1630,    // 2
+//     |x| x * (x * (x * 8.96e-8 - 4.13e-5) + 0.0124) + 0.1460,    // 3
+//     |x| x * (x * (x * -2.09e-10 + 4.83e-5) - 3.49e-3) + 0.3180, // 4
+//     |x| x * (x * (x * 1.25e-7 - 3.13e-5) + 6.02e-3) + 0.0928,   // 5
+//     |x| x * (x * (x * -1.27e-9 + 2.83e-5) + 0.0104) + 0.298,   // 6
+// ];
+
+/// Each channel on each board corresponds to a specific sensor, either a flex or a force sensor.
+/// Store the type and id of each sensor and associated channel in this array.
+/// WARNING: Does not enforce mutual exclusivity of flex and force sensors.
 const CHANNEL_SENSOR_ID_MAP: [Sensor; 32] = [
     Flex(1), Flex(2), Flex(3), Flex(4), // board 0
     Flex(5), Flex(6), Flex(7), Flex(8), // board 1
@@ -88,8 +133,33 @@ const CHANNEL_SENSOR_ID_MAP: [Sensor; 32] = [
     Flex(21), Flex(22), Flex(23), Flex(24), // board 7
 ];  
 
+enum Sensor {
+    /// (ID,)
+    Flex(usize),
+    /// (ID,)
+    Force(usize),
+}
+
+impl Sensor {
+    fn apply_calibration(&self, x: i16) -> f32 {
+        match self {
+            Flex(id) => {
+                // return x as f32;
+                let x = ZERO_FLEX_VALUES[*id] - x as f32;
+                let mult = MULTIPLIER_FLEX_VALUES[*id];
+                x * mult
+            },
+            Force(id) => {
+                // return x as f32;
+                FORCE_CURVES[*id](x as f32)
+            },
+        }
+    }
+}
+
+
 #[derive(Serialize)]
-struct Data {
+struct DataPacket {
     t: f64,
     d: Vec<f32>,
 }
@@ -140,38 +210,15 @@ fn read_packet(port: &mut dyn SerialPort) -> Result<Option<Vec<u8>>, Box<dyn Err
 
 /// Processes incoming data, running it through mapping functions before passing it on to plotjuggler
 fn process_data(data: Vec<i16>) -> Vec<f32> {
-    let ideal_flat = 1038.0;
-    // let flex_map  = |x: f32| x * -0.0106 + 10.6;
-    let flex_map = |x: f32| x * (x * 7.45e-6 - 0.0209) + 13.8;
-    let force_map = |x: f32| x * (x * (x * 2.2e-5 + 0.0479) + 5.34) - 53.7;
-    let adjust_zero_map = |ix: (usize, f32)| ix.1 - zero_points[ix.0] as f32 + ideal_flat;
-
     // Data comes in packets of 4 channels per board.
-    // Pass board ids 3 and 4 through the force map, and the rest through the flex map.
-    let mapped = data.iter()
-        .map(|x| *x as f32)
+    let mapped = data
+        .iter()
         .enumerate()
-        .map(adjust_zero_map)
-        .collect::<Vec<f32>>();
-    let mapped = mapped
-        .chunks(4)
-        .enumerate()
-        .map(|(i, chunk)| {
-            if i == 3 || i == 4 {
-                chunk
-                    .iter()
-                    .map(|&x| force_map(x))
-                    .collect::<Vec<f32>>()
-            } else {
-                chunk
-                    .iter()
-                    .map(|&x| flex_map(x))
-                    .collect::<Vec<f32>>()
-            }
-        })
-        .flatten()
-        .collect::<Vec<f32>>();
-    let mapped = data.iter().map(|x| *x as f32).collect::<Vec<f32>>();
+        .map(|(i, val)| CHANNEL_SENSOR_ID_MAP[i].apply_calibration(*val))
+        .collect::<Vec<_>>();
+
+    // uncomment this if you just want to see the raw data
+    // let mapped = data.iter().map(|x| *x as f32).collect::<Vec<_>>();
 
     mapped
 }
@@ -218,8 +265,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut packet_count = 0;
     let mut last_time = Instant::now();
 
-    let mut zeroes: Option<Vec<_>> = None;
-
     // Outer loop: always try to (re)connect
     loop {
         println!("Attempting to find and open the serial port...");
@@ -264,17 +309,11 @@ fn main() -> Result<(), Box<dyn Error>> {
                         offset += 2;
                     }
 
-                    // if it's none, set it to the first packet
-                    if zeroes.is_none() {
-                        zeroes = Some(adc_values.clone());
-                        println!("Zeroes: {:?}", zeroes);
-                    }
-
                     // Process the ADC values.
-                    let adc_values = process_data(adc_values, zeroes.as_ref().unwrap());
+                    let adc_values = process_data(adc_values);
 
                     // Create JSON structure for UDP transmission.
-                    let data = Data {
+                    let data = DataPacket {
                         t: timestamp_sec,
                         d: adc_values,
                     };

@@ -157,7 +157,7 @@ async fn main(spawner: Spawner) {
             0,
         )),
         spawner.spawn(adc_task_b0(
-            ads1015::Ads1015::new(ads1015::AdsAddressOptions::Addr49),
+            ads1015::Ads1015::new(ads1015::AdsAddressOptions::Addr4B),
             i2c0_bus,
             ads1015::AdsGainOptions::Two,
             1,
@@ -170,7 +170,7 @@ async fn main(spawner: Spawner) {
         )),
         // force board 1
         spawner.spawn(adc_task_b0(
-            ads1015::Ads1015::new(ads1015::AdsAddressOptions::Addr4B),
+            ads1015::Ads1015::new(ads1015::AdsAddressOptions::Addr49),
             i2c0_bus,
             ads1015::AdsGainOptions::One,
             3,
@@ -212,7 +212,7 @@ async fn main(spawner: Spawner) {
     let mut packet = Vec::<u8, PACKET_SIZE>::new();
 
     // Current record of most recent reports for boards
-    let mut sensor_data = [0i16; CHANNEL_COUNT];
+    let mut sensor_data = [i16::MIN; CHANNEL_COUNT];
 
     let send_adc_fut = async {
         // class.wait_connection().await;
@@ -224,6 +224,11 @@ async fn main(spawner: Spawner) {
 
         info!("Connecting ADCs...");
 
+        // build packet header
+        // MAGIC (2 bytes), data length (1 bytes),
+        packet.extend(MAGIC.to_le_bytes());
+        let _ = packet.push((ADC_COUNT_B0 * 8 + ADC_COUNT_B1 * 8 + 4) as u8);
+
         indicator.set_high();
 
         // wait for a DoneIntializing packet from each board
@@ -233,19 +238,43 @@ async fn main(spawner: Spawner) {
                 messages::ADCMessage::DoneInitializing(id) => {
                     boards_initialized += 1;
                     info!("Connected new ADC {}", id);
+                },
+                messages::ADCMessage::Data(val, channel, id) => {
+                    sensor_data[id as usize * 4 + channel as usize] = val;
                 }
-                _ => (),
             }
+
+            let now = embassy_time::Instant::now();
+            let start = now.as_micros();
+            let timestamp = now.as_millis() as u32;
+
+            // keep header
+            packet.truncate(3);
+
+            // timestamp (4 bytes)
+            packet.extend(timestamp.to_le_bytes());
+
+            // put data in the packet
+            for i in 0..sensor_data.len() {
+                packet.extend(sensor_data[i].to_le_bytes());
+            }
+
+            // send packet to host
+            // only send 64 bytes at a time
+            for i in (0..packet.len()).step_by(64) {
+                let end = (i + 64).min(packet.len());
+                sender.write_packet(&packet[i..end]).await.unwrap();
+            }
+
+            // regulate loop speed
+            let now = embassy_time::Instant::now();
+            let elapsed = now.as_micros() - start;
+            embassy_time::Timer::after_micros((1_000_000 / TARGET_PACKET_RATE).saturating_sub(elapsed)).await;
         }
 
         indicator.set_low();
 
         info!("All ADCs connected.");
-
-        // build packet header
-        // MAGIC (2 bytes), data length (1 bytes),
-        packet.extend(MAGIC.to_le_bytes());
-        let _ = packet.push((ADC_COUNT_B0 * 8 + ADC_COUNT_B1 * 8 + 4) as u8);
 
         loop {
             let now = embassy_time::Instant::now();
@@ -257,7 +286,6 @@ async fn main(spawner: Spawner) {
 
             // timestamp (4 bytes)
             packet.extend(timestamp.to_le_bytes());
-            // sender.write_packet(&packet).await.unwrap();
 
             // This only works if this task runs much faster than the ADCs can produce data!
             while let Ok(message) = messages::ADC_MESSAGE_CHANNEL.try_receive() {
@@ -272,7 +300,6 @@ async fn main(spawner: Spawner) {
             // put data in the packet
             for i in 0..sensor_data.len() {
                 packet.extend(sensor_data[i].to_le_bytes());
-                // sender.write_packet(&sensor_data[i].to_le_bytes()).await.unwrap();
             }
 
             // send packet to host
@@ -281,7 +308,6 @@ async fn main(spawner: Spawner) {
                 let end = (i + 64).min(packet.len());
                 sender.write_packet(&packet[i..end]).await.unwrap();
             }
-            // sender.write_packet(&packet).await.unwrap();
 
             // regulate loop speed
             let now = embassy_time::Instant::now();
