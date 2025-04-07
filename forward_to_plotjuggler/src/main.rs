@@ -205,7 +205,9 @@ struct Args {
 #[derive(Serialize)]
 struct DataPacket {
     t: f64,
-    d: Vec<f32>,
+    sensor_data: Vec<f32>,
+    rib_x_values: Vec<f32>,
+    rib_y_values: Vec<f32>,
 }
 
 /// Reads a packet from the given serial port.
@@ -362,16 +364,29 @@ fn main() -> Result<(), Box<dyn Error>> {
                     }
 
                     // Process the ADC values.
-                    let adc_values = if cli.raw {
+                    let processed_values = if cli.raw {
                         adc_values.iter().map(|x| *x as f32).collect()
                     } else {
                         process_data(adc_values)
                     };
 
+                    // Run RIB solver on related Flex sensors.
+                    let s_length = 711.2 / 6.0;
+                    let segments_c = vec![s_length; 6];
+                    let errors = vec![0.0; 6];
+                    // TODO: automatically create mapping from flex sensor IDs to channel IDs
+                    let thetas = processed_values[13..19].to_vec(); // 6 values
+                    let rib_points = rib::solve_rib(segments_c, thetas, errors);
+                    let rib_x_values = rib_points.iter().map(|p| p.x).collect::<Vec<_>>();
+                    let rib_y_values = rib_points.iter().map(|p| p.y).collect::<Vec<_>>();
+
+
                     // Create JSON structure for UDP transmission.
                     let data = DataPacket {
                         t: timestamp_sec,
-                        d: adc_values,
+                        sensor_data: processed_values,
+                        rib_x_values: rib_x_values,
+                        rib_y_values: rib_y_values,
                     };
                     let udp_message = match serde_json::to_string(&data) {
                         Ok(msg) => msg,
