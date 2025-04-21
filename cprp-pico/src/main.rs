@@ -32,8 +32,8 @@ use tasks::*;
 const DEVICE_INTERFACE_GUIDS: &[&str] = &["{AFB9A6FB-30BA-44BC-9232-806CFC875321}"];
 
 /// Number of ADC boards on each bus
-const ADC_COUNT_B0: usize = 4;
-const ADC_COUNT_B1: usize = 4;
+const ADC_COUNT_B0: usize = 3;
+const ADC_COUNT_B1: usize = 3;
 
 const BOARD_COUNT: usize = ADC_COUNT_B0 + ADC_COUNT_B1;
 const CHANNEL_COUNT: usize = BOARD_COUNT * 4;
@@ -64,14 +64,12 @@ async fn main(spawner: Spawner) {
     let mut built_in_adc = Adc::new(p.ADC, Irqs, embassy_rp::adc::Config::default());
     let mut p26 = Channel::new_pin(p.PIN_26, Pull::None);
     let mut p27 = Channel::new_pin(p.PIN_27, Pull::None);
-    let mut p28 = Channel::new_pin(p.PIN_28, Pull::None);
+    // let mut p28 = Channel::new_pin(p.PIN_28, Pull::None);
 
     let mut indicator = Output::new(p.PIN_25, false.into());
     // blink at the beginning rapidly 3 times to show it's the beginning
-    for _ in 0..3 {
-        indicator.set_high();
-        embassy_time::Timer::after_millis(70).await;
-        indicator.set_low();
+    for _ in 0..6 {
+        indicator.toggle();
         embassy_time::Timer::after_millis(70).await;
     }
 
@@ -156,55 +154,55 @@ async fn main(spawner: Spawner) {
     let i2c1_bus = I2C1_BUS.init(Mutex::new(i2c1));
 
     let adc_task_spawn_results = [
-        spawner.spawn(adc_task_b0(
-            ads1015::Ads1015::new(ads1015::AdsAddressOptions::Addr48),
-            i2c0_bus,
-            ads1015::AdsGainOptions::Two,
-            0,
-        )),
-        spawner.spawn(adc_task_b0(
-            ads1015::Ads1015::new(ads1015::AdsAddressOptions::Addr4B),
-            i2c0_bus,
-            ads1015::AdsGainOptions::Two,
-            1,
-        )),
-        spawner.spawn(adc_task_b0(
+        // spawner.spawn(adc_task_b0(
+        //     ads1015::Ads1015::new(ads1015::AdsAddressOptions::Addr48),
+        //     i2c0_bus,
+        //     ads1015::AdsGainOptions::Two,
+        //     0,
+        // )),
+        // spawner.spawn(adc_task_b0(
+        //     ads1015::Ads1015::new(ads1015::AdsAddressOptions::Addr4B),
+        //     i2c0_bus,
+        //     ads1015::AdsGainOptions::Two,
+        //     1,
+        // )),
+        spawner.spawn(adc_task_b1(
             ads1015::Ads1015::new(ads1015::AdsAddressOptions::Addr4A),
-            i2c0_bus,
+            i2c1_bus,
             ads1015::AdsGainOptions::Two,
-            2,
+            0, // labelled as 2
         )),
         // force board 1
-        spawner.spawn(adc_task_b0(
-            ads1015::Ads1015::new(ads1015::AdsAddressOptions::Addr49),
-            i2c0_bus,
-            ads1015::AdsGainOptions::One,
-            3,
-        )),
-        // force board 2
         spawner.spawn(adc_task_b1(
             ads1015::Ads1015::new(ads1015::AdsAddressOptions::Addr48),
             i2c1_bus,
             ads1015::AdsGainOptions::One,
-            4,
+            1, // labelled as 3
+        )),
+        // force board 2
+        spawner.spawn(adc_task_b0(
+            ads1015::Ads1015::new(ads1015::AdsAddressOptions::Addr48),
+            i2c0_bus,
+            ads1015::AdsGainOptions::One,
+            2, // labelled as 4
         )),
         spawner.spawn(adc_task_b1(
             ads1015::Ads1015::new(ads1015::AdsAddressOptions::Addr49),
             i2c1_bus,
             ads1015::AdsGainOptions::Two,
-            5,
+            3, // labelled as 5
         )),
-        spawner.spawn(adc_task_b1(
+        spawner.spawn(adc_task_b0(
             ads1015::Ads1015::new(ads1015::AdsAddressOptions::Addr4A),
-            i2c1_bus,
+            i2c0_bus,
             ads1015::AdsGainOptions::Two,
-            6,
+            4, // labelled as 6
         )),
-        spawner.spawn(adc_task_b1(
+        spawner.spawn(adc_task_b0(
             ads1015::Ads1015::new(ads1015::AdsAddressOptions::Addr4B),
-            i2c1_bus,
+            i2c0_bus,
             ads1015::AdsGainOptions::Two,
-            7,
+            5, // labelled as 7
         )),
     ];
     if !adc_task_spawn_results.iter().all(|x| x.is_ok()) {
@@ -267,7 +265,7 @@ async fn main(spawner: Spawner) {
             // insert on-board ADCs
             packet.extend(built_in_adc.read(&mut p26).await.unwrap_or(u16::MIN).to_le_bytes());
             packet.extend(built_in_adc.read(&mut p27).await.unwrap_or(u16::MIN).to_le_bytes());
-            packet.extend(built_in_adc.read(&mut p28).await.unwrap_or(u16::MIN).to_le_bytes());
+            // packet.extend(built_in_adc.read(&mut p28).await.unwrap_or(u16::MIN).to_le_bytes());
 
             // put data in the packet
             for i in 0..sensor_data.len() {
@@ -296,9 +294,7 @@ async fn main(spawner: Spawner) {
 
     // shuold never get here. Blink led if it somehow happens anyway
     loop {
-        indicator.set_high();
-        embassy_time::Timer::after_millis(500).await;
-        indicator.set_low();
+        indicator.toggle();
         embassy_time::Timer::after_millis(500).await;
     }
 }

@@ -54,7 +54,3 @@ Install plotjuggler: https://github.com/facontidavide/PlotJuggler
 cd into the `forward_to_plotjuggler` directory and run `cargo run --release`
 
 Open PlotJuggler, then navigate to streaming on the left. Select `UDP Server` from the dropdown, then click start. Change the Message Protocol to JSON, then click the checkmark labelled `use field as timestamp if available to enable it` and enter `t` into the message box.
-
-# CPRP-GUI
-
-## TODO: Documentation cannot be written currently as it is in a state of flux
