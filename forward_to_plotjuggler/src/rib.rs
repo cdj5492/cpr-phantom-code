@@ -1,9 +1,21 @@
 use bevy_math::prelude::*;
 
 pub fn solve_rib(segments_c: Vec<f32>, thetas: Vec<f32>, errors: Vec<f32>) -> Vec<Vec2> {
-    let thetas_mod: Vec<f32> = thetas.iter().zip(errors.iter()).map(|(theta, error)| theta + error).collect();
-    let r = segments_c.iter().zip(thetas_mod.iter()).map(|(segment, theta)| segment / theta).collect::<Vec<f32>>();
-    let segments_s: Vec<f32> = r.iter().zip(thetas_mod.iter()).map(|(r, theta)| r * (2.0 * (1.0 - theta.cos())).sqrt()).collect();
+    let thetas_mod: Vec<f32> = thetas
+        .iter()
+        .zip(errors.iter())
+        .map(|(theta, error)| theta + error)
+        .collect();
+    let r = segments_c
+        .iter()
+        .zip(thetas_mod.iter())
+        .map(|(segment, theta)| segment / theta)
+        .collect::<Vec<f32>>();
+    let segments_s: Vec<f32> = r
+        .iter()
+        .zip(thetas_mod.iter())
+        .map(|(r, theta)| r * (2.0 * (1.0 - theta.cos())).sqrt())
+        .collect();
 
     let mut phis = vec![0.0; thetas_mod.len()];
     phis[0] = thetas_mod[0] / 2.0;
