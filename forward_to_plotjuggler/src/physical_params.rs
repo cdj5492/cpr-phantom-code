@@ -1,4 +1,15 @@
-/// pub constant array of flat values for each flex sensor
+use crate::rib::{RibSegment, Rib};
+
+/// array of zero values for each potentiometer
+pub const ZERO_POTENTIOMETER_VALUES: [f32; 2] = [
+    245.0, // upper sternum
+    240.0, // lower sternum
+];
+
+/// slope in mm/(adc tick) for each potentiometer
+pub const MULTIPLIER_POTENTIOMETER_VALUES: [f32; 2] = [0.111261, 0.111261];
+
+/// array of flat values for each flex sensor
 pub const ZERO_FLEX_VALUES: [f32; 25] = [
     1162.0, // TODO: check this one (short one)
     1134.0, // 1
@@ -67,17 +78,6 @@ pub const FORCE_CURVES: [fn(f32) -> f32; 7] = [
     |x| x * (x * (x * 2.19e-09 + 2.42e-05) + 0.0118) + 0.1831, // 6
 ];
 
-pub struct RibSegment {
-    channel: usize,
-    length: f32,
-    error:  f32,
-}
-
-pub struct Rib {
-    /// A borrowed slice of segments
-    segments: &'static [RibSegment],
-}
-
 pub const RIB0_SEGMENTS: [RibSegment; 2] = [
     RibSegment { channel: 0, length: 0.0, error: 0.0 },
     RibSegment { channel: 1, length: 0.0, error: 0.0 },
@@ -119,7 +119,7 @@ pub const CHANNEL_SENSOR_ID_MAP: [Sensor; 26] = [
     Sensor::Flex(15),
     Sensor::Flex(13),
     // board 3
-    Sensor::Flex(0),
+    Sensor::Flex(0), // unused
     Sensor::Force(0),
     Sensor::Force(1),
     Sensor::Force(2),
@@ -129,20 +129,20 @@ pub const CHANNEL_SENSOR_ID_MAP: [Sensor; 26] = [
     Sensor::Force(5),
     Sensor::Force(6),
     // board 5
-    Sensor::Flex(13),
-    Sensor::Flex(14),
-    Sensor::Flex(15),
-    Sensor::Flex(16),
-    // board 6
+    Sensor::Flex(8),
+    Sensor::Flex(12),
+    Sensor::Flex(10),
+    Sensor::Flex(16), // Top rib. Double check (stuck under sternum)
+    // board 6 (double check this entire rib)
     Sensor::Flex(17),
     Sensor::Flex(18),
-    Sensor::Flex(19),
-    Sensor::Flex(20),
+    Sensor::Flex(19), // Double check (unclear wiring under tape)
+    Sensor::Flex(20), // Double check (stuck under sternum)
     // board 7
     Sensor::Flex(14),
     Sensor::Flex(1),
-    Sensor::Flex(23),
-    Sensor::Flex(24),
+    Sensor::Flex(2),
+    Sensor::Flex(3), // Double check (stuck under sternum)
 ];
 
 pub enum Sensor {
@@ -167,9 +167,8 @@ impl Sensor {
                 // return x as f32;
                 FORCE_CURVES[*id](x as f32)
             }
-            Sensor::Potentiometer(_id) => {
-                // TODO: implement curves
-                x as f32
+            Sensor::Potentiometer(id) => {
+                (x as f32 - ZERO_POTENTIOMETER_VALUES[*id]) * MULTIPLIER_POTENTIOMETER_VALUES[*id]
             }
         }
     }

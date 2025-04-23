@@ -41,7 +41,7 @@ const CHANNEL_COUNT: usize = BOARD_COUNT * 4;
 const MAGIC: u16 = 0xAA55;
 
 /// Size of the packet in bytes
-const PACKET_SIZE: usize = 2 + 1 + 4 + CHANNEL_COUNT * 2 + 3 * 2;
+const PACKET_SIZE: usize = 2 + 1 + 4 + CHANNEL_COUNT * 2 + 2 * 2;
 
 /// Ideally how many packets should we be sending per second?
 const TARGET_PACKET_RATE: u64 = 1000;
@@ -231,22 +231,22 @@ async fn main(spawner: Spawner) {
         // build packet header
         // MAGIC (2 bytes), data length (1 bytes),
         packet.extend(MAGIC.to_le_bytes());
-        let _ = packet.push((ADC_COUNT_B0 * 8 + ADC_COUNT_B1 * 8 + 4 + 3 * 2) as u8);
+        let _ = packet.push((ADC_COUNT_B0 * 8 + ADC_COUNT_B1 * 8 + 4 + 2 * 2) as u8);
 
         // wait for a DoneIntializing packet from each board
         let mut boards_initialized = 0;
 
         loop {
-            if boards_initialized < BOARD_COUNT {
-                match messages::ADC_MESSAGE_CHANNEL.receive().await {
-                    messages::ADCMessage::DoneInitializing(id) => {
-                        boards_initialized += 1;
-                        info!("Connected new ADC {}", id);
-                    }
-                    messages::ADCMessage::Data(val, channel, id) => {
-                        sensor_data[id as usize * 4 + channel as usize] = val;
-                    }
+            match messages::ADC_MESSAGE_CHANNEL.receive().await {
+                messages::ADCMessage::DoneInitializing(id) => {
+                    boards_initialized += 1;
+                    info!("Connected new ADC {}", id);
                 }
+                messages::ADCMessage::Data(val, channel, id) => {
+                    sensor_data[id as usize * 4 + channel as usize] = val;
+                }
+            }
+            if boards_initialized < BOARD_COUNT {
                 indicator.set_high();
             } else {
                 indicator.set_low();

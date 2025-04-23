@@ -33,8 +33,14 @@ struct Args {
 struct DataPacket {
     t: f64,
     sensor_data: Vec<f32>,
-    rib_x_values: Vec<f32>,
-    rib_y_values: Vec<f32>,
+    rib1_x_values: Vec<f32>,
+    rib1_y_values: Vec<f32>,
+    rib2_x_values: Vec<f32>,
+    rib2_y_values: Vec<f32>,
+    rib3_x_values: Vec<f32>,
+    rib3_y_values: Vec<f32>,
+    rib4_x_values: Vec<f32>,
+    rib4_y_values: Vec<f32>,
 }
 
 /// Reads a packet from the given serial port.
@@ -83,6 +89,9 @@ fn read_packet(port: &mut dyn SerialPort) -> Result<Option<Vec<u8>>, Box<dyn Err
 
 /// Processes incoming data, running it through mapping functions before passing it on to plotjuggler
 fn process_data(data: Vec<i16>) -> Vec<f32> {
+    // assert that the length of data is the same as the number of channels
+    assert_eq!(data.len(), CHANNEL_SENSOR_ID_MAP.len());
+
     // Data comes in packets of 4 channels per board.
     let mapped = data
         .iter()
@@ -201,26 +210,30 @@ fn main() -> Result<(), Box<dyn Error>> {
                         process_data(adc_values)
                     };
 
-                    // Run RIB solver on related Flex sensors.
-                    // let s_length = 711.2 / 6.0;
-                    // let segments_c = vec![s_length; 6];
-                    // let errors = vec![0.0; 6];
-                    // // TODO: automatically create mapping from flex sensor IDs to channel IDs
-                    // let thetas = processed_values[13..19].to_vec(); // 6 values
-                    // let rib_points = rib::solve_rib(segments_c, thetas, errors);
-                    // let rib_x_values = rib_points.iter().map(|p| p.x).collect::<Vec<_>>();
-                    // let rib_y_values = rib_points.iter().map(|p| p.y).collect::<Vec<_>>();
+                    // let all_rib_x_values = vec![Vec::new(); RIBS.len()];
+                    // let all_rib_y_values = vec![Vec::new(); RIBS.len()];
 
-                    // run solver on all 4 ribs
-                    
-                    
+                    let (rib_x_values, rib_y_values): (Vec<Vec<f32>>, Vec<Vec<f32>>) = RIBS.iter().map(|rib| {
+                        let thetas = rib.extract_thetas(&processed_values);
+                        let rib_points = rib.solve_rib(thetas);
+                        let rib_x_values = rib_points.iter().map(|p| p.x).collect::<Vec<_>>();
+                        let rib_y_values = rib_points.iter().map(|p| p.y).collect::<Vec<_>>();
+                        (rib_x_values, rib_y_values)
+                    }).unzip();
+
 
                     // Create JSON structure for UDP transmission.
                     let data = DataPacket {
                         t: timestamp_sec,
                         sensor_data: processed_values,
-                        rib_x_values: rib_x_values,
-                        rib_y_values: rib_y_values,
+                        rib1_x_values: rib_x_values[0].clone(),
+                        rib1_y_values: rib_y_values[0].clone(),
+                        rib2_x_values: rib_x_values[1].clone(),
+                        rib2_y_values: rib_y_values[1].clone(),
+                        rib3_x_values: rib_x_values[2].clone(),
+                        rib3_y_values: rib_y_values[2].clone(),
+                        rib4_x_values: rib_x_values[3].clone(),
+                        rib4_y_values: rib_y_values[3].clone(),
                     };
                     let udp_message = match serde_json::to_string(&data) {
                         Ok(msg) => msg,
