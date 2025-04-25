@@ -1,15 +1,15 @@
 use std::error::Error;
-use std::io::{stdout, ErrorKind, Write};
+use std::io::{ErrorKind, Write, stdout};
 use std::net::UdpSocket;
 use std::thread;
 use std::time::{Duration, Instant};
 
+use clap::Parser;
+use crossterm::ExecutableCommand;
 use crossterm::cursor::MoveToColumn;
 use crossterm::terminal::{Clear, ClearType};
-use crossterm::ExecutableCommand;
 use serde::Serialize;
 use serialport::{SerialPort, SerialPortType};
-use clap::Parser;
 
 mod physical_params;
 use physical_params::*;
@@ -18,7 +18,6 @@ mod rib;
 
 const MAGIC: u16 = 0xAA55;
 const TARGET_VENDOR_ID: u16 = 0xf569;
-
 
 /// command line args
 #[derive(Parser, Debug)]
@@ -142,7 +141,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         println!("Calibration mode enabled. Data will be calibrated.");
     }
 
-
     // --- Crossterm stdout setup ---
     let mut stdout = stdout();
 
@@ -213,14 +211,16 @@ fn main() -> Result<(), Box<dyn Error>> {
                     // let all_rib_x_values = vec![Vec::new(); RIBS.len()];
                     // let all_rib_y_values = vec![Vec::new(); RIBS.len()];
 
-                    let (rib_x_values, rib_y_values): (Vec<Vec<f32>>, Vec<Vec<f32>>) = RIBS.iter().map(|rib| {
-                        let thetas = rib.extract_thetas(&processed_values);
-                        let rib_points = rib.solve_rib(thetas);
-                        let rib_x_values = rib_points.iter().map(|p| p.x).collect::<Vec<_>>();
-                        let rib_y_values = rib_points.iter().map(|p| p.y).collect::<Vec<_>>();
-                        (rib_x_values, rib_y_values)
-                    }).unzip();
-
+                    let (rib_x_values, rib_y_values): (Vec<Vec<f32>>, Vec<Vec<f32>>) = RIBS
+                        .iter()
+                        .map(|rib| {
+                            let thetas = rib.extract_thetas(&processed_values);
+                            let rib_points = rib.solve_rib(thetas);
+                            let rib_x_values = rib_points.iter().map(|p| p.x).collect::<Vec<_>>();
+                            let rib_y_values = rib_points.iter().map(|p| p.y).collect::<Vec<_>>();
+                            (rib_x_values, rib_y_values)
+                        })
+                        .unzip(); // new favorite function!
 
                     // Create JSON structure for UDP transmission.
                     let data = DataPacket {
@@ -258,7 +258,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                         // clear line
                         stdout.execute(Clear(ClearType::CurrentLine))?;
                         print!("Packets per second: {}", packet_count);
-                        stdout.flush()?; 
+                        stdout.flush()?;
 
                         packet_count = 0;
                         last_time = current_time;
