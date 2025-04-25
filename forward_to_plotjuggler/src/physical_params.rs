@@ -80,8 +80,8 @@ pub const FORCE_CURVES: [fn(f32) -> f32; 7] = [
 
 // TODO: These are all placeholder segments
 pub const RIB0_SEGMENTS: [RibSegment; 3] = [
-    RibSegment { channel: 0, length: 55.0, error: 0.0 },
-    RibSegment { channel: 1, length: 55.0, error: 0.0 },
+    RibSegment { channel: 16, length: 55.0, error: 0.0 },
+    RibSegment { channel: 17, length: 55.0, error: 0.0 },
     RibSegment { channel: 2, length: 55.0, error: 0.0 },
 ];
 pub const RIB1_SEGMENTS: [RibSegment; 4] = [
