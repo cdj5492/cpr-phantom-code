@@ -78,13 +78,31 @@ pub const FORCE_CURVES: [fn(f32) -> f32; 7] = [
     |x| x * (x * (x * 2.19e-09 + 2.42e-05) + 0.0118) + 0.1831, // 6
 ];
 
-pub const RIB0_SEGMENTS: [RibSegment; 2] = [
-    RibSegment { channel: 0, length: 0.0, error: 0.0 },
-    RibSegment { channel: 1, length: 0.0, error: 0.0 },
+// TODO: These are all placeholder segments
+pub const RIB0_SEGMENTS: [RibSegment; 3] = [
+    RibSegment { channel: 0, length: 55.0, error: 0.0 },
+    RibSegment { channel: 1, length: 55.0, error: 0.0 },
+    RibSegment { channel: 2, length: 55.0, error: 0.0 },
 ];
-pub const RIB1_SEGMENTS: [RibSegment; 0] = [];
-pub const RIB2_SEGMENTS: [RibSegment; 0] = [];
-pub const RIB3_SEGMENTS: [RibSegment; 0] = [];
+pub const RIB1_SEGMENTS: [RibSegment; 4] = [
+    RibSegment { channel: 3, length: 55.0, error: 0.0 },
+    RibSegment { channel: 4, length: 55.0, error: 0.0 },
+    RibSegment { channel: 5, length: 55.0, error: 0.0 },
+    RibSegment { channel: 6, length: 55.0, error: 0.0 },
+];
+pub const RIB2_SEGMENTS: [RibSegment; 4] = [
+    RibSegment { channel: 7, length: 55.0, error: 0.0 },
+    RibSegment { channel: 8, length: 55.0, error: 0.0 },
+    RibSegment { channel: 9, length: 55.0, error: 0.0 },
+    RibSegment { channel: 10, length: 55.0, error: 0.0 },
+];
+pub const RIB3_SEGMENTS: [RibSegment; 5] = [
+    RibSegment { channel: 11, length: 55.0, error: 0.0 },
+    RibSegment { channel: 12, length: 55.0, error: 0.0 },
+    RibSegment { channel: 13, length: 55.0, error: 0.0 },
+    RibSegment { channel: 14, length: 55.0, error: 0.0 },
+    RibSegment { channel: 15, length: 55.0, error: 0.0 },
+];
 
 /// Rib segment lengths. First rib is at the top of the ribcage, last rib is at the bottom.
 /// Segments start at the spine and end at the sternum.
