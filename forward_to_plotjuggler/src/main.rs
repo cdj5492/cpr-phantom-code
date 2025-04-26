@@ -9,6 +9,7 @@ use clap::Parser;
 use eframe::egui::{self, Pos2};
 use egui::containers::Frame;
 use egui::epaint::{Color32, PathStroke, Shape};
+use enigo::Keyboard;
 use serde::Serialize;
 use serialport::{SerialPort, SerialPortType};
 
@@ -22,6 +23,9 @@ const TARGET_VENDOR_ID: u16 = 0xf569;
 const BAUD_RATE: u32 = 115200;
 const UDP_IP: &str = "127.0.0.1";
 const UDP_PORT: u16 = 9870;
+
+/// Threshold for the potentiometer to be below to be considered pressed
+const PRESS_THRESH: f32 = 500.0;
 
 const RIB_COLORS: [Color32; 4] = [Color32::RED, Color32::GREEN, Color32::BLUE, Color32::YELLOW];
 
@@ -103,6 +107,9 @@ fn worker_loop(
     let mut last_time = Instant::now();
     let mut cnt = 0usize;
 
+    let enigo_settings = enigo::Settings::default();
+    let mut enigo = enigo::Enigo::new(&enigo_settings).unwrap();
+
     loop {
         if port.is_none() {
             port = open_serial_port(BAUD_RATE);
@@ -152,6 +159,13 @@ fn worker_loop(
                         );
                     }
                     *s = Some(ribs);
+                }
+
+                if processed[0] < PRESS_THRESH {
+                    // ignore result
+                    let _ = enigo.key(enigo::Key::Space, enigo::Direction::Press);
+                } else {
+                    let _ = enigo.key(enigo::Key::Space, enigo::Direction::Release);
                 }
 
                 let packet_json = serde_json::to_string(&DataPacket {
