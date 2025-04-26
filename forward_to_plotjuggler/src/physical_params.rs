@@ -80,28 +80,28 @@ pub const FORCE_CURVES: [fn(f32) -> f32; 7] = [
 
 // TODO: These are all placeholder segments
 pub const RIB0_SEGMENTS: [RibSegment; 3] = [
-    RibSegment { channel: 16, length: 55.0, error: 0.0 },
-    RibSegment { channel: 17, length: 55.0, error: 0.0 },
     RibSegment { channel: 2, length: 55.0, error: 0.0 },
-];
-pub const RIB1_SEGMENTS: [RibSegment; 4] = [
     RibSegment { channel: 3, length: 55.0, error: 0.0 },
     RibSegment { channel: 4, length: 55.0, error: 0.0 },
+];
+pub const RIB1_SEGMENTS: [RibSegment; 4] = [
     RibSegment { channel: 5, length: 55.0, error: 0.0 },
-    RibSegment { channel: 6, length: 55.0, error: 0.0 },
-];
-pub const RIB2_SEGMENTS: [RibSegment; 4] = [
-    RibSegment { channel: 7, length: 55.0, error: 0.0 },
-    RibSegment { channel: 8, length: 55.0, error: 0.0 },
-    RibSegment { channel: 9, length: 55.0, error: 0.0 },
-    RibSegment { channel: 10, length: 55.0, error: 0.0 },
-];
-pub const RIB3_SEGMENTS: [RibSegment; 5] = [
-    RibSegment { channel: 11, length: 55.0, error: 0.0 },
-    RibSegment { channel: 12, length: 55.0, error: 0.0 },
-    RibSegment { channel: 13, length: 55.0, error: 0.0 },
     RibSegment { channel: 14, length: 55.0, error: 0.0 },
     RibSegment { channel: 15, length: 55.0, error: 0.0 },
+    RibSegment { channel: 16, length: 55.0, error: 0.0 },
+];
+pub const RIB2_SEGMENTS: [RibSegment; 4] = [
+    RibSegment { channel: 17, length: 55.0, error: 0.0 },
+    RibSegment { channel: 18, length: 55.0, error: 0.0 },
+    RibSegment { channel: 19, length: 55.0, error: 0.0 },
+    RibSegment { channel: 20, length: 55.0, error: 0.0 },
+];
+pub const RIB3_SEGMENTS: [RibSegment; 5] = [
+    RibSegment { channel: 21, length: 55.0, error: 0.0 },
+    RibSegment { channel: 22, length: 55.0, error: 0.0 },
+    RibSegment { channel: 23, length: 55.0, error: 0.0 },
+    RibSegment { channel: 24, length: 55.0, error: 0.0 },
+    RibSegment { channel: 25, length: 55.0, error: 0.0 },
 ];
 
 /// Rib segment lengths. First rib is at the top of the ribcage, last rib is at the bottom.
