@@ -8,7 +8,7 @@ The forwarding code can be found in the `forward_to_plotjuggler` folder and the 
 
 ## Setup
 
-Has been tested on WSL, but not windows.
+Has been tested on WSL and native Windows.
 
 Requires rust, as well as picotool. If using a debug probe, install probe-rs as well
 To install picotools, follow directions at `https://github.com/raspberrypi/picotool`
