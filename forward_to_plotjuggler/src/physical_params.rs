@@ -2,12 +2,12 @@ use crate::rib::{RibSegment, Rib};
 
 /// array of zero values for each potentiometer
 pub const ZERO_POTENTIOMETER_VALUES: [f32; 2] = [
-    245.0, // upper sternum
-    240.0, // lower sternum
+    623.0, // upper sternum
+    1830.0, // lower sternum
 ];
 
 /// slope in mm/(adc tick) for each potentiometer
-pub const MULTIPLIER_POTENTIOMETER_VALUES: [f32; 2] = [0.111261, 0.111261];
+pub const MULTIPLIER_POTENTIOMETER_VALUES: [f32; 2] = [0.135408924949, 0.157882787002];
 
 /// array of flat values for each flex sensor
 pub const ZERO_FLEX_VALUES: [f32; 25] = [
@@ -80,28 +80,28 @@ pub const FORCE_CURVES: [fn(f32) -> f32; 7] = [
 
 // TODO: These are all placeholder segments
 pub const RIB0_SEGMENTS: [RibSegment; 3] = [
-    RibSegment { channel: 16, length: 55.0, error: 0.0 },
-    RibSegment { channel: 17, length: 55.0, error: 0.0 },
     RibSegment { channel: 2, length: 55.0, error: 0.0 },
-];
-pub const RIB1_SEGMENTS: [RibSegment; 4] = [
     RibSegment { channel: 3, length: 55.0, error: 0.0 },
     RibSegment { channel: 4, length: 55.0, error: 0.0 },
+];
+pub const RIB1_SEGMENTS: [RibSegment; 4] = [
     RibSegment { channel: 5, length: 55.0, error: 0.0 },
-    RibSegment { channel: 6, length: 55.0, error: 0.0 },
-];
-pub const RIB2_SEGMENTS: [RibSegment; 4] = [
-    RibSegment { channel: 7, length: 55.0, error: 0.0 },
-    RibSegment { channel: 8, length: 55.0, error: 0.0 },
-    RibSegment { channel: 9, length: 55.0, error: 0.0 },
-    RibSegment { channel: 10, length: 55.0, error: 0.0 },
-];
-pub const RIB3_SEGMENTS: [RibSegment; 5] = [
-    RibSegment { channel: 11, length: 55.0, error: 0.0 },
-    RibSegment { channel: 12, length: 55.0, error: 0.0 },
-    RibSegment { channel: 13, length: 55.0, error: 0.0 },
     RibSegment { channel: 14, length: 55.0, error: 0.0 },
     RibSegment { channel: 15, length: 55.0, error: 0.0 },
+    RibSegment { channel: 16, length: 55.0, error: 0.0 },
+];
+pub const RIB2_SEGMENTS: [RibSegment; 4] = [
+    RibSegment { channel: 17, length: 55.0, error: 0.0 },
+    RibSegment { channel: 18, length: 55.0, error: 0.0 },
+    RibSegment { channel: 19, length: 55.0, error: 0.0 },
+    RibSegment { channel: 20, length: 55.0, error: 0.0 },
+];
+pub const RIB3_SEGMENTS: [RibSegment; 5] = [
+    RibSegment { channel: 21, length: 55.0, error: 0.0 },
+    RibSegment { channel: 22, length: 55.0, error: 0.0 },
+    RibSegment { channel: 23, length: 55.0, error: 0.0 },
+    RibSegment { channel: 24, length: 55.0, error: 0.0 },
+    RibSegment { channel: 25, length: 55.0, error: 0.0 },
 ];
 
 /// Rib segment lengths. First rib is at the top of the ribcage, last rib is at the bottom.
@@ -186,7 +186,8 @@ impl Sensor {
                 FORCE_CURVES[*id](x as f32)
             }
             Sensor::Potentiometer(id) => {
-                (x as f32 - ZERO_POTENTIOMETER_VALUES[*id]) * MULTIPLIER_POTENTIOMETER_VALUES[*id]
+                // return x as f32;
+                -1.0 * (x as f32 - ZERO_POTENTIOMETER_VALUES[*id]) * MULTIPLIER_POTENTIOMETER_VALUES[*id]
             }
         }
     }

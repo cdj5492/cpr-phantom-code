@@ -1,16 +1,19 @@
 use std::error::Error;
-use std::io::{ErrorKind, Write, stdout};
+use std::io::ErrorKind;
 use std::net::UdpSocket;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use clap::Parser;
+use eframe::egui::{self, Pos2};
+use egui::containers::Frame;
+use egui::{
+    epaint,
+    epaint::{Color32, PathStroke, Shape},
+};
 use serde::Serialize;
 use serialport::{SerialPort, SerialPortType};
-use eframe::egui::{self, Pos2, Rect};
-use egui::containers::Frame;
-use egui::{emath, epaint, epaint::{PathStroke, Color32, Shape}};
 
 mod physical_params;
 use physical_params::*;
@@ -26,12 +29,7 @@ const UDP_IP: &str = "127.0.0.1";
 const UDP_PORT: u16 = 9870;
 
 /// per-rib colors for the UI plot
-const RIB_COLORS: [Color32; 4] = [
-    Color32::RED,
-    Color32::GREEN,
-    Color32::BLUE,
-    Color32::YELLOW,
-];
+const RIB_COLORS: [Color32; 4] = [Color32::RED, Color32::GREEN, Color32::BLUE, Color32::YELLOW];
 
 /// command line args
 #[derive(Parser, Debug)]
@@ -55,6 +53,11 @@ struct DataPacket {
     rib3_y_values: Vec<f32>,
     rib4_x_values: Vec<f32>,
     rib4_y_values: Vec<f32>,
+    rib1_flex_values: Vec<f32>,
+    rib2_flex_values: Vec<f32>,
+    rib3_flex_values: Vec<f32>,
+    rib4_flex_values: Vec<f32>,
+    force_sensor_values: Vec<f32>,
 }
 
 /// Reads a packet from the given serial port.
@@ -137,7 +140,7 @@ fn open_serial_port(baud_rate: u32) -> Option<Box<dyn SerialPort>> {
 }
 
 type SharedRibData = Arc<Mutex<Option<Vec<Vec<(f32, f32)>>>>>;
-type SharedPps     = Arc<Mutex<usize>>;
+type SharedPps = Arc<Mutex<usize>>;
 
 /// high-speed worker running in its own thread (~1 kHz)
 fn worker_loop(
@@ -167,8 +170,7 @@ fn worker_loop(
                 }
 
                 // Unpack the 4-byte timestamp.
-                let timestamp =
-                    u32::from_le_bytes([packet[0], packet[1], packet[2], packet[3]]);
+                let timestamp = u32::from_le_bytes([packet[0], packet[1], packet[2], packet[3]]);
                 let timestamp_sec = (timestamp as f64) / 1e3;
 
                 // Calculate the number of ADC values based on the payload length.
@@ -220,6 +222,25 @@ fn worker_loop(
                     *guard = Some(ribs);
                 }
 
+                // put together individual rib and force sensor values
+                let rib1_flex_values = RIB0_SEGMENTS
+                    .iter()
+                    .map(|seg| processed_values[seg.channel as usize])
+                    .collect::<Vec<_>>();
+                let rib2_flex_values = RIB1_SEGMENTS
+                    .iter()
+                    .map(|seg| processed_values[seg.channel as usize])
+                    .collect::<Vec<_>>();
+                let rib3_flex_values = RIB2_SEGMENTS
+                    .iter()
+                    .map(|seg| processed_values[seg.channel as usize])
+                    .collect::<Vec<_>>();
+                let rib4_flex_values = RIB3_SEGMENTS
+                    .iter()
+                    .map(|seg| processed_values[seg.channel as usize])
+                    .collect::<Vec<_>>();
+                let force_sensor_values = processed_values[7..=13].to_vec();
+
                 // Create JSON structure for UDP transmission.
                 let data = DataPacket {
                     t: timestamp_sec,
@@ -232,6 +253,11 @@ fn worker_loop(
                     rib3_y_values: rib_y_values[2].clone(),
                     rib4_x_values: rib_x_values[3].clone(),
                     rib4_y_values: rib_y_values[3].clone(),
+                    rib1_flex_values,
+                    rib2_flex_values,
+                    rib3_flex_values,
+                    rib4_flex_values,
+                    force_sensor_values,
                 };
                 let udp_message = serde_json::to_string(&data).unwrap();
                 let _ = udp_socket.send_to(udp_message.as_bytes(), &udp_target);
@@ -359,7 +385,9 @@ fn main() -> eframe::Result<()> {
         let shared_clone = Arc::clone(&shared);
         let pps_clone = Arc::clone(&pps);
         let socket_clone = socket.try_clone().expect("udp clone");
-        thread::spawn(move || worker_loop(cli.raw, shared_clone, pps_clone, socket_clone, udp_target));
+        thread::spawn(move || {
+            worker_loop(cli.raw, shared_clone, pps_clone, socket_clone, udp_target)
+        });
     }
 
     let options = eframe::NativeOptions {
